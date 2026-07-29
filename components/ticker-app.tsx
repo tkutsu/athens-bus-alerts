@@ -49,7 +49,7 @@ interface StopDetailsPayload {
 
 type StepName = "stop" | "buses" | "notify";
 const MESSAGE_DISMISS_MS = 30_000;
-const LOCATION_REFRESH_MS = 60_000;
+const LOCATION_REFRESH_MS = 20_000;
 const COLLAPSED_STEPS: Record<StepName, boolean> = {
   stop: false,
   buses: false,
@@ -648,7 +648,7 @@ export function TickerApp() {
             setIsLocating(false);
           }
         },
-        { enableHighAccuracy: false, maximumAge: 60_000, timeout: 10_000 },
+        { enableHighAccuracy: false, maximumAge: 20_000, timeout: 10_000 },
       );
     },
     [],
@@ -978,7 +978,7 @@ export function TickerApp() {
         <div>
           <h1 className="flex items-center gap-2 text-xs font-bold tracking-[0.22em] text-signal uppercase">
             <Icon name="bus" className="size-5" />
-            Athens Bus Alerts
+            Athens Bus Notifications
           </h1>
           <p className="mt-2 text-sm text-ink/55">
             Pick stop · Pick bus · Get alert
@@ -1179,7 +1179,7 @@ export function TickerApp() {
             controls="stop-step-content"
             expanded={expandedSteps.stop}
             id="stop-heading"
-            label="01 · Stop"
+            label="01 · Bus stop"
             onToggle={() => toggleStep("stop")}
             selection={selectedStop?.name}
           />
