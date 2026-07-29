@@ -19,11 +19,11 @@ export async function GET(request: Request) {
     );
   }
 
-  if (query.length < 2 && !/^\d+$/.test(query)) {
+  if (query.length < 2) {
     return apiError(
       400,
       "INVALID_INPUT",
-      "Enter at least two letters or a stop code.",
+      "Enter at least two letters.",
     );
   }
 
@@ -33,8 +33,6 @@ export async function GET(request: Request) {
     const searchable = [
       normalizeSearchText(stop.name),
       transliterateGreek(stop.name),
-      normalizeSearchText(stop.code),
-      normalizeSearchText(stop.publicCode),
     ].join(" ");
 
     if (!searchable.includes(query)) {

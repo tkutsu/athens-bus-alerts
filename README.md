@@ -4,7 +4,7 @@ A compact, installable personal web app for nearby OASA bus stops, live
 arrivals, a clickable stop map, multi-line arrival alerts, and named favorite
 presets.
 
-Live at [bus.themos.dev](https://bus.themos.dev).
+**Live app:** [https://bus.themos.dev](https://bus.themos.dev)
 
 ## Stop catalogue
 
@@ -15,7 +15,7 @@ catalogue when the feed changes:
 pnpm sync:stops
 ```
 
-The catalogue only powers name/code search and distance ordering. Live stop
+The catalogue only powers name search and distance ordering. Live stop
 details, lines, and arrivals are always fetched from OASA Telematics.
 
 ## Cloudflare Workers

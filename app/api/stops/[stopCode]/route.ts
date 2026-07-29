@@ -15,7 +15,7 @@ export async function GET(_request: Request, context: RouteContext) {
   const { stopCode } = await context.params;
 
   if (!isStopCode(stopCode)) {
-    return apiError(400, "INVALID_INPUT", "Enter a valid numeric stop code.");
+    return apiError(400, "INVALID_INPUT", "Choose a valid stop.");
   }
 
   try {
@@ -26,7 +26,7 @@ export async function GET(_request: Request, context: RouteContext) {
     const stop = details?.[0];
 
     if (!stop) {
-      return apiError(404, "NOT_FOUND", "That OASA stop code was not found.");
+      return apiError(404, "NOT_FOUND", "That OASA stop was not found.");
     }
 
     const routes = normalizeRoutes(upstreamRoutes ?? []);

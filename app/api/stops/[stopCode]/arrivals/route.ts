@@ -12,7 +12,7 @@ export async function GET(_request: Request, context: RouteContext) {
   const { stopCode } = await context.params;
 
   if (!isStopCode(stopCode)) {
-    return apiError(400, "INVALID_INPUT", "Enter a valid numeric stop code.");
+    return apiError(400, "INVALID_INPUT", "Choose a valid stop.");
   }
 
   try {

@@ -32,6 +32,7 @@ import {
 } from "@/lib/types";
 import { dedupeArrivals } from "@/lib/arrivals";
 import { useArrivalPolling } from "@/hooks/use-arrival-polling";
+import { StopCombobox } from "@/components/stop-combobox";
 import { StopMap } from "@/components/stop-map";
 
 interface StopDetailsPayload {
@@ -47,6 +48,8 @@ interface StopListPayload {
 
 type StepName = "stop" | "buses" | "notify";
 const MESSAGE_DISMISS_MS = 30_000;
+const LOCATION_REFRESH_MS = 60_000;
+const NEARBY_REFRESH_DISTANCE_METERS = 75;
 const COLLAPSED_STEPS: Record<StepName, boolean> = {
   stop: false,
   buses: false,
@@ -63,7 +66,6 @@ function Icon({
     | "locate"
     | "pencil"
     | "refresh"
-    | "search"
     | "star";
   className?: string;
 }) {
@@ -98,12 +100,6 @@ function Icon({
       <>
         <path d="M20 11a8.1 8.1 0 0 0-15.5-2M4 4v5h5" />
         <path d="M4 13a8.1 8.1 0 0 0 15.5 2M20 20v-5h-5" />
-      </>
-    ),
-    search: (
-      <>
-        <circle cx="11" cy="11" r="7" />
-        <path d="m20 20-4-4" />
       </>
     ),
     star: <path d="m12 2 3.1 6.3 6.9 1-5 4.9 1.2 6.8-6.2-3.2L5.8 21 7 14.2l-5-4.9 6.9-1z" />,
@@ -229,6 +225,11 @@ export function TickerApp() {
   const activeAlarmRef = useRef<ActiveAlarm | null>(null);
   const hydrationStartedRef = useRef(false);
   const favoriteNameInputRef = useRef<HTMLInputElement | null>(null);
+  const coordinatesRef = useRef<Coordinates | null>(null);
+  const lastNearbyOriginRef = useRef<Coordinates | null>(null);
+  const locationDeniedRef = useRef(false);
+  const searchAbortRef = useRef<AbortController | null>(null);
+  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLocating, setIsLocating] = useState(false);
@@ -251,7 +252,11 @@ export function TickerApp() {
     refresh,
     stale,
   } = useArrivalPolling(
-    activeAlarm?.completedAt ? null : (selectedStop?.code ?? null),
+    activeAlarm &&
+      !activeAlarm.completedAt &&
+      activeAlarm.stopCode === selectedStop?.code
+      ? activeAlarm.stopCode
+      : null,
   );
 
   const updateAlarm = useCallback((alarm: ActiveAlarm | null) => {
@@ -397,8 +402,6 @@ export function TickerApp() {
     () => new Map(routes.map((route) => [route.routeCode, route])),
     [routes],
   );
-  const stopOptions =
-    searchTotal !== null ? searchResults : nearbyStops;
   const uniqueArrivals = useMemo(
     () => dedupeArrivals(arrivalData?.arrivals ?? []),
     [arrivalData?.arrivals],
@@ -467,7 +470,9 @@ export function TickerApp() {
     if (
       !alarm ||
       !arrivalData ||
-      alarm.stopCode !== selectedStop?.code
+      alarm.stopCode !== selectedStop?.code ||
+      new Date(arrivalData.observedAt).getTime() <
+        new Date(alarm.armedAt).getTime()
     ) {
       return;
     }
@@ -544,107 +549,211 @@ export function TickerApp() {
     setStatus(
       `Alert armed for ${lineIds.join(", ")}. Zero minutes is always included.`,
     );
-
-    if (arrivalData && stop.code === selectedStop?.code) {
-      await processAlarm(alarm, candidates, new Date(arrivalData.observedAt));
-    }
   }
 
-  /** Gets the device position and loads the ten nearest stops. */
-  async function locate() {
-    setIsLocating(true);
-    setError(null);
-    setStatus(null);
+  /** Re-arms a completed alert with its previous stop, buses, and times. */
+  async function restartAlarm(alarm: ActiveAlarm) {
+    const currentLineIds = new Set(lines.map((line) => line.lineId));
+    const loaded =
+      selectedStop?.code === alarm.stopCode
+        ? {
+            stop: selectedStop,
+            validLines: alarm.selectedLineIds.filter((lineId) =>
+              currentLineIds.has(lineId),
+            ),
+          }
+        : await loadStop(
+            { code: alarm.stopCode, name: alarm.stopName },
+            alarm.selectedLineIds,
+          );
 
-    if (!navigator.geolocation) {
-      setError("Location is not supported. Choose a stop on the map.");
-      setIsLocating(false);
+    if (!loaded || loaded.validLines.length === 0) {
+      setError("The saved buses no longer serve this stop.");
       return;
     }
 
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        const nextCoordinates = {
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-        };
-        setCoordinates(nextCoordinates);
-
-        try {
-          const response = await fetch(
-            `/api/nearby-stops?lat=${nextCoordinates.latitude}&lng=${nextCoordinates.longitude}`,
-            { cache: "no-store" },
-          );
-          if (!response.ok) throw new Error(await responseError(response));
-          const payload = (await response.json()) as StopListPayload;
-          setNearbyStops(payload.stops);
-          setSearchResults([]);
-          setSearchTotal(null);
-          setSearchQuery("");
-          if (payload.stops[0]) {
-            await loadStop(payload.stops[0]);
-          }
-          setStatus("Showing the closest stops.");
-        } catch (locateError) {
-          setError(
-            locateError instanceof Error
-              ? locateError.message
-              : "Could not find nearby stops.",
-          );
-        } finally {
-          setIsLocating(false);
-        }
-      },
-      (locationError) => {
-        const messages: Record<number, string> = {
-          1: "Location was denied. Choose a stop on the map.",
-          2: "Your location is unavailable. Try again or use the map.",
-          3: "Location timed out. Try again or use the map.",
-        };
-        setError(messages[locationError.code] ?? "Could not get your location.");
-        setIsLocating(false);
-      },
-      { enableHighAccuracy: true, maximumAge: 60_000, timeout: 10_000 },
+    setThresholds(alarm.optionalThresholds);
+    setSelectedLineIds(loaded.validLines);
+    await armWith(
+      loaded.stop,
+      loaded.validLines,
+      alarm.optionalThresholds,
     );
   }
 
-  /** Searches all stops and sorts matches by distance. */
-  async function searchStops(event: React.FormEvent) {
-    event.preventDefault();
-    if (!coordinates) {
-      setError("Use your location before searching, so results can be distance-sorted.");
+  /** Refreshes nearby stops only after meaningful movement or a manual request. */
+  const loadNearbyStops = useCallback(
+    async (
+      nextCoordinates: Coordinates,
+      force: boolean,
+      announce: boolean,
+    ) => {
+      const previousOrigin = lastNearbyOriginRef.current;
+      if (
+        !force &&
+        previousOrigin &&
+        haversineMeters(previousOrigin, nextCoordinates) <
+          NEARBY_REFRESH_DISTANCE_METERS
+      ) {
+        return;
+      }
+
+      try {
+        const response = await fetch(
+          `/api/nearby-stops?lat=${nextCoordinates.latitude}&lng=${nextCoordinates.longitude}`,
+          { cache: "no-store" },
+        );
+        if (!response.ok) throw new Error(await responseError(response));
+        const payload = (await response.json()) as StopListPayload;
+        lastNearbyOriginRef.current = nextCoordinates;
+        setNearbyStops(payload.stops);
+        if (announce) setStatus("Showing the closest stops.");
+      } catch (nearbyError) {
+        setError(
+          nearbyError instanceof Error
+            ? nearbyError.message
+            : "Could not find nearby stops.",
+        );
+      }
+    },
+    [],
+  );
+
+  /** Reads the device location; manual reads always refresh nearby stops. */
+  const locate = useCallback(
+    (force = false) => {
+      if (locationDeniedRef.current && !force) return;
+
+      const showProgress = force || coordinatesRef.current === null;
+      if (showProgress) {
+        setIsLocating(true);
+        setError(null);
+      }
+
+      if (!navigator.geolocation) {
+        setError("Location is not supported. Choose a stop on the map.");
+        setIsLocating(false);
+        return;
+      }
+
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const firstLocation = coordinatesRef.current === null;
+          const nextCoordinates = {
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+          };
+          coordinatesRef.current = nextCoordinates;
+          setCoordinates(nextCoordinates);
+          void loadNearbyStops(
+            nextCoordinates,
+            force,
+            force || firstLocation,
+          ).finally(() => {
+            if (showProgress) setIsLocating(false);
+          });
+        },
+        (locationError) => {
+          if (locationError.code === 1) locationDeniedRef.current = true;
+          if (showProgress) {
+            const messages: Record<number, string> = {
+              1: "Location was denied. Choose a stop on the map.",
+              2: "Your location is unavailable. Try again or use the map.",
+              3: "Location timed out. Try again or use the map.",
+            };
+            setError(
+              messages[locationError.code] ?? "Could not get your location.",
+            );
+            setIsLocating(false);
+          }
+        },
+        { enableHighAccuracy: false, maximumAge: 60_000, timeout: 10_000 },
+      );
+    },
+    [loadNearbyStops],
+  );
+
+  useEffect(() => {
+    if (!hydrated) return;
+
+    // Locate immediately, then keep the position current without refetching
+    // nearby stops until the device has moved at least 75 metres.
+    const initialLocation = window.setTimeout(locate, 0);
+    const interval = window.setInterval(locate, LOCATION_REFRESH_MS);
+    return () => {
+      window.clearTimeout(initialLocation);
+      window.clearInterval(interval);
+    };
+  }, [hydrated, locate]);
+
+  useEffect(
+    () => () => {
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+      }
+      searchAbortRef.current?.abort();
+    },
+    [],
+  );
+
+  /** Debounces stop-name searches and keeps results distance-sorted. */
+  function updateStopQuery(query: string) {
+    setSearchQuery(query);
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    searchAbortRef.current?.abort();
+
+    const normalized = query.trim();
+    if (normalized.length < 2 || !coordinatesRef.current) {
+      setSearchResults([]);
+      setSearchTotal(null);
+      setIsSearching(false);
       return;
     }
 
     setIsSearching(true);
-    setError(null);
-    try {
-      const params = new URLSearchParams({
-        q: searchQuery,
-        lat: String(coordinates.latitude),
-        lng: String(coordinates.longitude),
-      });
-      const response = await fetch(`/api/stops/search?${params}`, {
-        cache: "no-store",
-      });
-      if (!response.ok) throw new Error(await responseError(response));
-      const payload = (await response.json()) as StopListPayload;
-      setSearchResults(payload.stops);
-      setSearchTotal(payload.total ?? payload.stops.length);
-      setStatus(
-        payload.stops.length
-          ? `${payload.total ?? payload.stops.length} matching stops, sorted by distance.`
-          : "No matching stops found.",
-      );
-    } catch (searchError) {
-      setError(
-        searchError instanceof Error
-          ? searchError.message
-          : "Stop search failed.",
-      );
-    } finally {
-      setIsSearching(false);
-    }
+    searchTimeoutRef.current = setTimeout(async () => {
+      const controller = new AbortController();
+      searchAbortRef.current = controller;
+      const currentCoordinates = coordinatesRef.current;
+      if (!currentCoordinates) return;
+
+      try {
+        const params = new URLSearchParams({
+          q: normalized,
+          lat: String(currentCoordinates.latitude),
+          lng: String(currentCoordinates.longitude),
+        });
+        const response = await fetch(`/api/stops/search?${params}`, {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (!response.ok) throw new Error(await responseError(response));
+        const payload = (await response.json()) as StopListPayload;
+        setSearchResults(payload.stops);
+        setSearchTotal(payload.total ?? payload.stops.length);
+      } catch (searchError) {
+        if (
+          !(searchError instanceof DOMException) ||
+          searchError.name !== "AbortError"
+        ) {
+          setError(
+            searchError instanceof Error
+              ? searchError.message
+              : "Stop search failed.",
+          );
+        }
+      } finally {
+        if (!controller.signal.aborted) setIsSearching(false);
+      }
+    }, 300);
+  }
+
+  /** Selects a stop from either the map or combined picker. */
+  function chooseStop(stop: StopSummary) {
+    setSearchQuery("");
+    setSearchResults([]);
+    setSearchTotal(null);
+    void loadStop(stop);
   }
 
   function toggleLine(lineId: string) {
@@ -984,31 +1093,42 @@ export function TickerApp() {
                 </p>
               )}
             </div>
-            <button
-              aria-label="Cancel alert"
-              className="alert-dismiss flex size-14 shrink-0 items-center justify-center border-0 bg-transparent text-signal hover:text-signal"
-              onClick={() => {
-                updateAlarm(null);
-                setStatus("Alert cancelled.");
-              }}
-              title="Cancel alert"
-              type="button"
-            >
-              <svg
-                aria-hidden="true"
-                className="size-4"
-                fill="none"
-                stroke="currentColor"
-                strokeLinecap="round"
-                strokeWidth="2.25"
-                suppressHydrationWarning
-                viewBox="0 0 24 24"
+            <div className="flex shrink-0 items-center gap-2">
+              {activeAlarm.completedAt && (
+                <button
+                  className="small-action"
+                  onClick={() => void restartAlarm(activeAlarm)}
+                  type="button"
+                >
+                  Restart
+                </button>
+              )}
+              <button
+                aria-label="Cancel alert"
+                className="alert-dismiss flex size-14 shrink-0 items-center justify-center border-0 bg-transparent text-signal hover:text-signal"
+                onClick={() => {
+                  updateAlarm(null);
+                  setStatus("Alert cancelled.");
+                }}
+                title="Cancel alert"
+                type="button"
               >
-                <path d="M3 3 21 21M21 3 3 21" />
-              </svg>
-            </button>
+                <svg
+                  aria-hidden="true"
+                  className="size-4"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeLinecap="round"
+                  strokeWidth="2.25"
+                  suppressHydrationWarning
+                  viewBox="0 0 24 24"
+                >
+                  <path d="M3 3 21 21M21 3 3 21" />
+                </svg>
+              </button>
+            </div>
           </div>
-          {selectedStop &&
+          {selectedStop?.code === activeAlarm.stopCode &&
             !activeAlarm.completedAt &&
             renderLiveArrivals(
               "mt-4 border-t border-signal/20 pt-4",
@@ -1145,7 +1265,7 @@ export function TickerApp() {
             <button
               className="small-action flex items-center gap-1.5"
               disabled={isLocating}
-              onClick={() => void locate()}
+              onClick={() => locate(true)}
               type="button"
             >
               <Icon name="locate" className="size-4" />
@@ -1158,93 +1278,28 @@ export function TickerApp() {
         <div id="stop-step-content">
         <StopMap
           center={coordinates}
-          onSelectStop={(stop) => void loadStop(stop)}
+          onSelectStop={chooseStop}
           selectedStop={selectedStop}
         />
 
-        {stopOptions.length > 0 && (
-          <label className="mt-3 block">
-            <span className="sr-only">Choose a stop</span>
-            <select
-              className="field text-base font-semibold"
-              onChange={(event) => {
-                const stop = stopOptions.find(
-                  (option) => option.code === event.target.value,
-                );
-                if (stop) void loadStop(stop);
-              }}
-              value={
-                stopOptions.some((stop) => stop.code === selectedStop?.code)
-                  ? selectedStop?.code
-                  : ""
-              }
-            >
-              <option disabled value="">
-                Choose a stop
-              </option>
-              {stopOptions.map((stop, index) => (
-                <option key={stop.code} value={stop.code}>
-                  {index + 1}. {stop.name} · {formatDistance(stop.distanceMeters)} · #
-                  {stop.code}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-
         {coordinates && (
-          <form className="mt-3 flex gap-2" onSubmit={searchStops}>
-            <label className="relative min-w-0 flex-1">
-              <span className="sr-only">Search any stop name or code</span>
-              <Icon
-                name="search"
-                className="pointer-events-none absolute top-3 left-3 size-4 text-ink/40"
-              />
-              <input
-                className="field pl-9"
-                onChange={(event) => {
-                  setSearchQuery(event.target.value);
-                  if (!event.target.value) {
-                    setSearchResults([]);
-                    setSearchTotal(null);
-                  }
-                }}
-                placeholder="Search any stop name or code"
-                value={searchQuery}
-              />
-            </label>
-            <button
-              className="secondary-button"
-              disabled={isSearching}
-              type="submit"
-            >
-              {isSearching ? "Searching..." : "Search"}
-            </button>
-          </form>
-        )}
-        {searchTotal !== null && (
-          <p className="mt-2 text-xs text-ink/50">
-            Showing up to 50 of {searchTotal} matches, nearest first.{" "}
-            <button
-              className="small-action underline"
-              onClick={() => {
-                setSearchResults([]);
-                setSearchTotal(null);
-                setSearchQuery("");
-              }}
-              type="button"
-            >
-              Back to closest
-            </button>
-          </p>
+          <StopCombobox
+            isLoading={isSearching || (isLocating && nearbyStops.length === 0)}
+            onQueryChange={updateStopQuery}
+            onSelect={chooseStop}
+            options={
+              searchQuery.trim().length >= 2
+                ? searchResults
+                : nearbyStops
+            }
+            query={searchQuery}
+            resultTotal={searchTotal}
+          />
         )}
 
         {selectedStop && (
           <div className="mt-4 flex items-baseline justify-between border-l-2 border-signal pl-3">
-            <div>
-              <p className="font-semibold text-ink">{selectedStop.name}</p>
-              <p className="text-xs text-ink/50">Stop #{selectedStop.code}</p>
-            </div>
+            <p className="font-semibold text-ink">{selectedStop.name}</p>
             {selectedStop.distanceMeters > 0 && (
               <span className="font-mono text-sm text-ink/60">
                 {formatDistance(selectedStop.distanceMeters)}
@@ -1375,8 +1430,6 @@ export function TickerApp() {
         )}
       </section>
       )}
-
-      {selectedStop && !activeAlarm && renderLiveArrivals("mb-8")}
 
       {(error || arrivalError || status) && (
         <div
