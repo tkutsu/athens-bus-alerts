@@ -169,6 +169,9 @@ test("reveals each step only after the previous selection", async ({
 
   await expect(page.getByText("10 min")).toBeVisible();
   await expect(page.getByText("0 min · always")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Notify me" }).locator("svg"),
+  ).toHaveClass(/notify-bell-ready/);
   await expect(page.getByPlaceholder("New favorite")).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Save favorite" }),
@@ -279,12 +282,13 @@ test("reveals each step only after the previous selection", async ({
   await expect(
     page.getByRole("button", { name: "03 · Notify" }),
   ).toHaveAttribute("aria-expanded", "false");
+  await expect(activeAlertPanel.getByText("4 min")).toBeVisible();
   await expect(
     activeAlertPanel.getByRole("heading", { name: "Live arrivals" }),
-  ).toBeVisible();
+  ).toHaveCount(0);
   await expect(
-    page.getByRole("heading", { name: "Live arrivals" }),
-  ).toHaveCount(1);
+    activeAlertPanel.getByRole("button", { name: "Refresh" }),
+  ).toHaveCount(0);
   await expect(activeAlertPanel.getByText(/^Earliest /)).toHaveCount(0);
   await expect(activeAlertPanel.getByText(/Updated/)).toHaveClass(
     /text-right/,
@@ -409,12 +413,14 @@ test("keeps selections and can restart after a bus reaches zero", async ({
   await expect(notifyToggle).toContainText("10/5/3/1/0 min");
   await expect(
     page.getByRole("heading", { name: "Live arrivals" }),
-  ).toBeHidden();
+  ).toHaveCount(0);
   const completedAlert = page.getByRole("region", {
     name: "Alert complete",
   });
   await expect(completedAlert).toBeVisible();
-  await expect(completedAlert).toContainText("218 arrived");
+  await expect(
+    completedAlert.getByRole("heading", { name: "218 arrived" }),
+  ).toBeVisible();
   await expect(
     completedAlert.getByRole("button", { name: "Restart" }),
   ).toBeVisible();
@@ -438,10 +444,10 @@ test("keeps selections and can restart after a bus reaches zero", async ({
   await completedAlert.getByRole("button", { name: "Restart" }).click();
   const restartedAlert = page.getByRole("region", { name: "Active alert" });
   await expect(restartedAlert).toBeVisible();
-  await expect(
-    restartedAlert.getByRole("heading", { name: "Live arrivals" }),
-  ).toBeVisible();
   await expect(restartedAlert).toContainText("4 min");
+  await expect(
+    restartedAlert.getByRole("button", { name: "Refresh" }),
+  ).toHaveCount(0);
   expect(arrivalRequestCount).toBe(2);
 
   await restartedAlert.getByRole("button", { name: "Cancel alert" }).click();
