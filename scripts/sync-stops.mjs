@@ -8,7 +8,7 @@ const GTFS_URL =
   "https://data.gov.gr/dataset/fb049bb1-aea6-4443-95fa-8b941dd6a057/resource/119db488-16ea-4c76-b560-41c472872390/download/osy_gtfs.zip";
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
-const outputPath = resolve(scriptDirectory, "../data/stops.json");
+const outputPath = resolve(scriptDirectory, "../public/data/stops.json");
 
 const response = await fetch(GTFS_URL, {
   signal: AbortSignal.timeout(120_000),
@@ -36,7 +36,6 @@ const stopsByCode = new Map();
 
 for (const row of rows) {
   const code = String(row.stop_id ?? "").trim();
-  const publicCode = String(row.stop_code ?? "").trim();
   const name = String(row.stop_name ?? "").trim();
   const latitude = Number(row.stop_lat);
   const longitude = Number(row.stop_lon);
@@ -52,7 +51,6 @@ for (const row of rows) {
 
   stopsByCode.set(code, {
     code,
-    publicCode,
     name,
     latitude,
     longitude,

@@ -74,6 +74,10 @@ summary:focus-visible {
   outline-offset: 2px;
 }
 
+.favorite-name-input:focus-visible {
+  outline: none;
+}
+
 button:disabled,
 input:disabled,
 select:disabled,
@@ -156,6 +160,11 @@ textarea:disabled {
   animation: pulse-dot 1.8s ease-out infinite;
 }
 
+.notify-bell-ready {
+  transform-origin: 50% 10%;
+  animation: notify-bell-ring 1.8s ease-in-out infinite;
+}
+
 .alert-dismiss,
 .small-action {
   transition: transform 120ms ease-out;
@@ -178,7 +187,31 @@ textarea:disabled {
   }
 }
 
+@keyframes notify-bell-ring {
+  0%,
+  62%,
+  100% {
+    transform: rotate(0);
+  }
+  68% {
+    transform: rotate(-14deg);
+  }
+  74% {
+    transform: rotate(12deg);
+  }
+  80% {
+    transform: rotate(-8deg);
+  }
+  86% {
+    transform: rotate(6deg);
+  }
+  92% {
+    transform: rotate(0);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .notify-bell-ready,
   .pulse-dot {
     animation: none;
   }
