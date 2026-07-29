@@ -190,7 +190,7 @@ export function StopMap({
       });
 
       marker
-        .bindTooltip(`${stop.name} · #${stop.code}`, {
+        .bindTooltip(stop.name, {
           direction: "top",
           offset: [0, -4],
         })
@@ -206,9 +206,21 @@ export function StopMap({
     const map = mapRef.current;
     if (!L || !mapReady || !map) return;
 
-    userMarkerRef.current?.remove();
-    userMarkerRef.current = null;
-    if (!center) return;
+    if (!center) {
+      userMarkerRef.current?.remove();
+      userMarkerRef.current = null;
+      return;
+    }
+
+    const position: [number, number] = [
+      center.latitude,
+      center.longitude,
+    ];
+    if (userMarkerRef.current) {
+      userMarkerRef.current.setLatLng(position);
+      if (!map.getBounds().contains(position)) map.panTo(position);
+      return;
+    }
 
     const icon = L.divIcon({
       className: "",
@@ -217,7 +229,7 @@ export function StopMap({
       iconSize: [28, 36],
       tooltipAnchor: [0, -34],
     });
-    const marker = L.marker([center.latitude, center.longitude], {
+    const marker = L.marker(position, {
       icon,
       keyboard: false,
       zIndexOffset: 1000,
@@ -226,7 +238,7 @@ export function StopMap({
       .bindTooltip("Your position", { direction: "top" })
       .addTo(map);
     userMarkerRef.current = marker;
-    map.setView([center.latitude, center.longitude], 16);
+    map.setView(position, 16);
   }, [center, mapReady]);
 
   useEffect(() => {

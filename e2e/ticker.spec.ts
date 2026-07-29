@@ -4,6 +4,7 @@ test("reveals each step only after the previous selection", async ({
   context,
   page,
 }) => {
+  let arrivalRequestCount = 0;
   await context.grantPermissions(["geolocation"]);
   await context.setGeolocation({
     latitude: 37.9445913,
@@ -53,12 +54,30 @@ test("reveals each step only after the previous selection", async ({
     });
   });
   await page.route("**/api/stops/400075/arrivals", async (route) => {
+    arrivalRequestCount += 1;
     await route.fulfill({
       json: {
         arrivals: [
           { routeCode: "2810", vehicleId: "32336", minutes: 4 },
         ],
         observedAt: new Date().toISOString(),
+      },
+    });
+  });
+  await page.route("**/api/stops/search?*", async (route) => {
+    await route.fulfill({
+      json: {
+        stops: [
+          {
+            code: "060001",
+            name: "SYNTAGMA",
+            street: null,
+            latitude: 37.9753,
+            longitude: 23.7357,
+            distanceMeters: 4100,
+          },
+        ],
+        total: 1,
       },
     });
   });
@@ -76,9 +95,10 @@ test("reveals each step only after the previous selection", async ({
     page.getByRole("button", { name: "Find closest" }),
   ).toBeVisible();
   await expect(page.getByLabel("Map of OASA bus stops")).toBeVisible();
-  await expect(
-    page.getByPlaceholder("Search any stop name or code"),
-  ).toBeHidden();
+  const stopPicker = page.getByRole("combobox", {
+    name: "Search and choose a stop",
+  });
+  await expect(stopPicker).toBeVisible();
   await expect(page.getByText("Enter stop code instead")).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "02 · BUSES" })).toBeHidden();
   await expect(page.getByText("10 min")).toBeHidden();
@@ -93,23 +113,34 @@ test("reveals each step only after the previous selection", async ({
   ).toBeHidden();
   await stopToggle.click();
 
-  await page.getByRole("button", { name: "Find closest" }).click();
-
   await expect(page.getByText("Your position")).toBeVisible();
-  await expect(stopToggle).toContainText("HSAP N. FALHROY");
-  await expect(stopToggle).not.toContainText("#400075");
-  await expect(
-    page.getByPlaceholder("Search any stop name or code"),
-  ).toBeVisible();
   const mapBox = await page.getByLabel("Map of OASA bus stops").boundingBox();
-  const stopSelectBox = await page
-    .getByRole("combobox", { name: "Choose a stop" })
-    .boundingBox();
+  const stopSelectBox = await stopPicker.boundingBox();
   expect(mapBox).not.toBeNull();
   expect(stopSelectBox).not.toBeNull();
   expect(mapBox!.y).toBeLessThan(stopSelectBox!.y);
 
+  await stopPicker.click();
+  await expect(
+    page.getByRole("option", { name: /1\. HSAP N\. FALHROY/ }),
+  ).toBeVisible();
+  await page.getByRole("heading", { name: "Athens Bus Alerts" }).click();
+  await expect(page.getByRole("listbox")).toBeHidden();
+
+  await stopPicker.fill("syntagma");
+  await expect(
+    page.getByRole("option", { name: /SYNTAGMA/ }),
+  ).toBeVisible();
+  await expect(page.getByRole("listbox")).not.toContainText("#060001");
+  await stopPicker.fill("");
+  await page
+    .getByRole("option", { name: /1\. HSAP N\. FALHROY/ })
+    .click();
+
+  await expect(stopToggle).toContainText("HSAP N. FALHROY");
+  await expect(stopToggle).not.toContainText("#400075");
   await expect(page.getByRole("button", { name: "218" })).toBeVisible();
+  expect(arrivalRequestCount).toBe(0);
   await expect(page.getByRole("button", { name: "218" })).toHaveClass(
     /time-chip/,
   );
@@ -207,6 +238,7 @@ test("reveals each step only after the previous selection", async ({
       lastObservedLineId: "218",
       lastObservedMinutes: 4,
       armedAt: "2026-07-29T10:00:00.000Z",
+      completedAt: null,
     };
     window.localStorage.setItem(key, JSON.stringify(state));
   });
@@ -257,10 +289,22 @@ test("reveals each step only after the previous selection", async ({
   expect(cancelBox!.y).toBeLessThan(favoritesBox!.y);
 });
 
-test("keeps selections when an active bus reaches zero", async ({
+test("keeps selections and can restart after a bus reaches zero", async ({
+  context,
   page,
 }) => {
+  let arrivalRequestCount = 0;
+  await context.grantPermissions(["notifications"], {
+    origin: "http://127.0.0.1:3100",
+  });
   await page.addInitScript(() => {
+    Object.defineProperty(window, "Notification", {
+      configurable: true,
+      value: class {
+        static permission = "granted";
+        static requestPermission = async () => "granted";
+      },
+    });
     window.localStorage.setItem(
       "athens-bus-ticker:v2",
       JSON.stringify({
@@ -312,10 +356,15 @@ test("keeps selections when an active bus reaches zero", async ({
     });
   });
   await page.route("**/api/stops/400075/arrivals", async (route) => {
+    arrivalRequestCount += 1;
     await route.fulfill({
       json: {
         arrivals: [
-          { routeCode: "2810", vehicleId: "32336", minutes: 0 },
+          {
+            routeCode: "2810",
+            vehicleId: "32336",
+            minutes: arrivalRequestCount === 1 ? 0 : 4,
+          },
         ],
         observedAt: new Date().toISOString(),
       },
@@ -339,6 +388,9 @@ test("keeps selections when an active bus reaches zero", async ({
   });
   await expect(completedAlert).toBeVisible();
   await expect(completedAlert).toContainText("218 arrived");
+  await expect(
+    completedAlert.getByRole("button", { name: "Restart" }),
+  ).toBeVisible();
   await expect
     .poll(() =>
       page.evaluate(() => {
@@ -355,6 +407,19 @@ test("keeps selections when an active bus reaches zero", async ({
       selectedStop: { code: "400075", name: "HSAP N. FALHROY" },
       selectedLineIds: ["218"],
     });
-  await completedAlert.getByRole("button", { name: "Cancel alert" }).click();
-  await expect(completedAlert).toBeHidden();
+
+  await completedAlert.getByRole("button", { name: "Restart" }).click();
+  const restartedAlert = page.getByRole("region", { name: "Active alert" });
+  await expect(restartedAlert).toBeVisible();
+  await expect(
+    restartedAlert.getByRole("heading", { name: "Live arrivals" }),
+  ).toBeVisible();
+  await expect(restartedAlert).toContainText("4 min");
+  expect(arrivalRequestCount).toBe(2);
+
+  await restartedAlert.getByRole("button", { name: "Cancel alert" }).click();
+  await expect(restartedAlert).toBeHidden();
+  await expect(
+    page.getByRole("heading", { name: "Live arrivals" }),
+  ).toHaveCount(0);
 });
