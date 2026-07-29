@@ -205,7 +205,7 @@ export function StopMap({
     ];
     if (userMarkerRef.current) {
       userMarkerRef.current.setLatLng(position);
-      if (!map.getBounds().contains(position)) map.panTo(position);
+      map.panTo(position);
       return;
     }
 
