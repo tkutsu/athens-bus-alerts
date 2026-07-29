@@ -5,22 +5,40 @@ test("reveals each step only after the previous selection", async ({
   page,
 }) => {
   let arrivalRequestCount = 0;
+  let catalogueRequestCount = 0;
+  const discoveryApiRequests: string[] = [];
+  page.on("request", (request) => {
+    if (
+      /\/api\/(?:nearby-stops|stops\/(?:map|search))/.test(
+        new URL(request.url()).pathname,
+      )
+    ) {
+      discoveryApiRequests.push(request.url());
+    }
+  });
   await context.grantPermissions(["geolocation"]);
   await context.setGeolocation({
     latitude: 37.9445913,
     longitude: 23.6671421,
   });
-  await page.route("**/api/nearby-stops?*", async (route) => {
+  await page.route("**/data/stops.json", async (route) => {
+    catalogueRequestCount += 1;
     await route.fulfill({
       json: {
+        generatedAt: "2026-07-29T09:56:48.228Z",
+        source: "test",
         stops: [
           {
             code: "400075",
             name: "HSAP N. FALHROY",
-            street: null,
             latitude: 37.9445913,
             longitude: 23.6671421,
-            distanceMeters: 0,
+          },
+          {
+            code: "060001",
+            name: "SYNTAGMA",
+            latitude: 37.9753,
+            longitude: 23.7357,
           },
         ],
       },
@@ -64,24 +82,6 @@ test("reveals each step only after the previous selection", async ({
       },
     });
   });
-  await page.route("**/api/stops/search?*", async (route) => {
-    await route.fulfill({
-      json: {
-        stops: [
-          {
-            code: "060001",
-            name: "SYNTAGMA",
-            street: null,
-            latitude: 37.9753,
-            longitude: 23.7357,
-            distanceMeters: 4100,
-          },
-        ],
-        total: 1,
-      },
-    });
-  });
-
   await page.goto("/");
 
   await expect(
@@ -140,6 +140,8 @@ test("reveals each step only after the previous selection", async ({
   await expect(stopToggle).toContainText("HSAP N. FALHROY");
   await expect(stopToggle).not.toContainText("#400075");
   await expect(page.getByRole("button", { name: "218" })).toBeVisible();
+  expect(catalogueRequestCount).toBe(1);
+  expect(discoveryApiRequests).toEqual([]);
   expect(arrivalRequestCount).toBe(0);
   await expect(page.getByRole("button", { name: "218" })).toHaveClass(
     /time-chip/,

@@ -3,7 +3,7 @@ import {
   normalizeSearchText,
   transliterateGreek,
 } from "@/lib/search";
-import { GET } from "@/app/api/stops/search/route";
+import { searchStopNames } from "@/lib/stop-catalog";
 
 describe("stop search normalization", () => {
   it("removes accents and normalizes spacing", () => {
@@ -14,15 +14,20 @@ describe("stop search normalization", () => {
     expect(transliterateGreek("ΟΜΟΝΟΙΑ")).toBe("omonoia");
   });
 
-  it("does not expose stop-code search", async () => {
-    const response = await GET(
-      new Request(
-        "http://localhost/api/stops/search?q=400075&lat=37.9753&lng=23.7357",
-      ),
+  it("does not expose stop-code search", () => {
+    const result = searchStopNames(
+      [
+        {
+          code: "400075",
+          name: "HSAP N. FALHROY",
+          latitude: 37.9445913,
+          longitude: 23.6671421,
+        },
+      ],
+      "400075",
+      { latitude: 37.9753, longitude: 23.7357 },
     );
-    const payload = (await response.json()) as { total: number };
 
-    expect(response.status).toBe(200);
-    expect(payload.total).toBe(0);
+    expect(result.total).toBe(0);
   });
 });

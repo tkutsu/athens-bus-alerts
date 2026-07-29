@@ -8,15 +8,16 @@ presets.
 
 ## Stop catalogue
 
-Global stop search uses OASA's official static GTFS feed. Refresh the generated
-catalogue when the feed changes:
+The browser downloads one static stop catalogue generated from OASA's official GTFS
+feed. Nearby ranking, name search, and map filtering then run locally without Worker
+requests. Refresh the generated catalogue when the feed changes:
 
 ```bash
 pnpm sync:stops
 ```
 
-The catalogue only powers name search and distance ordering. Live stop
-details, lines, and arrivals are always fetched from OASA Telematics.
+The catalogue only powers stop discovery. Live stop details, lines, and arrivals are
+always fetched from OASA Telematics through the Worker.
 
 ## Cloudflare Workers
 

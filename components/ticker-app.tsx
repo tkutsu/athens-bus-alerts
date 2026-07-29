@@ -2,6 +2,7 @@
 
 import {
   useCallback,
+  useDeferredValue,
   useEffect,
   useMemo,
   useRef,
@@ -31,7 +32,12 @@ import {
   type StopSummary,
 } from "@/lib/types";
 import { dedupeArrivals } from "@/lib/arrivals";
+import {
+  findClosestStops,
+  searchStopNames,
+} from "@/lib/stop-catalog";
 import { useArrivalPolling } from "@/hooks/use-arrival-polling";
+import { useStopCatalog } from "@/hooks/use-stop-catalog";
 import { StopCombobox } from "@/components/stop-combobox";
 import { StopMap } from "@/components/stop-map";
 
@@ -41,15 +47,9 @@ interface StopDetailsPayload {
   lines: ServingLine[];
 }
 
-interface StopListPayload {
-  stops: StopSummary[];
-  total?: number;
-}
-
 type StepName = "stop" | "buses" | "notify";
 const MESSAGE_DISMISS_MS = 30_000;
 const LOCATION_REFRESH_MS = 60_000;
-const NEARBY_REFRESH_DISTANCE_METERS = 75;
 const COLLAPSED_STEPS: Record<StepName, boolean> = {
   stop: false,
   buses: false,
@@ -210,9 +210,6 @@ function buildCandidateArrivals(
 export function TickerApp() {
   const [hydrated, setHydrated] = useState(false);
   const [coordinates, setCoordinates] = useState<Coordinates | null>(null);
-  const [nearbyStops, setNearbyStops] = useState<StopSummary[]>([]);
-  const [searchResults, setSearchResults] = useState<StopSummary[]>([]);
-  const [searchTotal, setSearchTotal] = useState<number | null>(null);
   const [selectedStop, setSelectedStop] = useState<StopSummary | null>(null);
   const [routes, setRoutes] = useState<ServingRoute[]>([]);
   const [lines, setLines] = useState<ServingLine[]>([]);
@@ -226,15 +223,11 @@ export function TickerApp() {
   const hydrationStartedRef = useRef(false);
   const favoriteNameInputRef = useRef<HTMLInputElement | null>(null);
   const coordinatesRef = useRef<Coordinates | null>(null);
-  const lastNearbyOriginRef = useRef<Coordinates | null>(null);
   const locationDeniedRef = useRef(false);
-  const searchAbortRef = useRef<AbortController | null>(null);
-  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLocating, setIsLocating] = useState(false);
   const [isLoadingStop, setIsLoadingStop] = useState(false);
-  const [isSearching, setIsSearching] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [favoriteName, setFavoriteName] = useState("");
   const [expandedSteps, setExpandedSteps] = useState<
@@ -258,6 +251,34 @@ export function TickerApp() {
       ? activeAlarm.stopCode
       : null,
   );
+  const {
+    stops: catalogStops,
+    error: catalogError,
+    isLoading: catalogLoading,
+  } = useStopCatalog();
+  const deferredSearchQuery = useDeferredValue(searchQuery);
+  const nearbyStops = useMemo(
+    () =>
+      coordinates
+        ? findClosestStops(catalogStops, coordinates)
+        : [],
+    [catalogStops, coordinates],
+  );
+  const searchResult = useMemo(
+    () =>
+      coordinates
+        ? searchStopNames(
+            catalogStops,
+            deferredSearchQuery,
+            coordinates,
+          )
+        : { stops: [], total: 0 },
+    [catalogStops, coordinates, deferredSearchQuery],
+  );
+  const searchResults = searchResult.stops;
+  const searchTotal =
+    searchQuery.trim().length >= 2 ? searchResult.total : null;
+  const isSearching = searchQuery !== deferredSearchQuery;
 
   const updateAlarm = useCallback((alarm: ActiveAlarm | null) => {
     activeAlarmRef.current = alarm;
@@ -581,45 +602,7 @@ export function TickerApp() {
     );
   }
 
-  /** Refreshes nearby stops only after meaningful movement or a manual request. */
-  const loadNearbyStops = useCallback(
-    async (
-      nextCoordinates: Coordinates,
-      force: boolean,
-      announce: boolean,
-    ) => {
-      const previousOrigin = lastNearbyOriginRef.current;
-      if (
-        !force &&
-        previousOrigin &&
-        haversineMeters(previousOrigin, nextCoordinates) <
-          NEARBY_REFRESH_DISTANCE_METERS
-      ) {
-        return;
-      }
-
-      try {
-        const response = await fetch(
-          `/api/nearby-stops?lat=${nextCoordinates.latitude}&lng=${nextCoordinates.longitude}`,
-          { cache: "no-store" },
-        );
-        if (!response.ok) throw new Error(await responseError(response));
-        const payload = (await response.json()) as StopListPayload;
-        lastNearbyOriginRef.current = nextCoordinates;
-        setNearbyStops(payload.stops);
-        if (announce) setStatus("Showing the closest stops.");
-      } catch (nearbyError) {
-        setError(
-          nearbyError instanceof Error
-            ? nearbyError.message
-            : "Could not find nearby stops.",
-        );
-      }
-    },
-    [],
-  );
-
-  /** Reads the device location; manual reads always refresh nearby stops. */
+  /** Reads the device location used for client-side stop ordering. */
   const locate = useCallback(
     (force = false) => {
       if (locationDeniedRef.current && !force) return;
@@ -643,15 +626,13 @@ export function TickerApp() {
             latitude: position.coords.latitude,
             longitude: position.coords.longitude,
           };
+          locationDeniedRef.current = false;
           coordinatesRef.current = nextCoordinates;
           setCoordinates(nextCoordinates);
-          void loadNearbyStops(
-            nextCoordinates,
-            force,
-            force || firstLocation,
-          ).finally(() => {
-            if (showProgress) setIsLocating(false);
-          });
+          if (force || firstLocation) {
+            setStatus("Showing the closest stops.");
+          }
+          if (showProgress) setIsLocating(false);
         },
         (locationError) => {
           if (locationError.code === 1) locationDeniedRef.current = true;
@@ -670,14 +651,14 @@ export function TickerApp() {
         { enableHighAccuracy: false, maximumAge: 60_000, timeout: 10_000 },
       );
     },
-    [loadNearbyStops],
+    [],
   );
 
   useEffect(() => {
     if (!hydrated) return;
 
-    // Locate immediately, then keep the position current without refetching
-    // nearby stops until the device has moved at least 75 metres.
+    // The catalogue stays in the browser, so each location fix can reorder it
+    // without making a Worker request.
     const initialLocation = window.setTimeout(locate, 0);
     const interval = window.setInterval(locate, LOCATION_REFRESH_MS);
     return () => {
@@ -686,73 +667,14 @@ export function TickerApp() {
     };
   }, [hydrated, locate]);
 
-  useEffect(
-    () => () => {
-      if (searchTimeoutRef.current) {
-        clearTimeout(searchTimeoutRef.current);
-      }
-      searchAbortRef.current?.abort();
-    },
-    [],
-  );
-
-  /** Debounces stop-name searches and keeps results distance-sorted. */
+  /** Updates the client-side stop-name search. */
   function updateStopQuery(query: string) {
     setSearchQuery(query);
-    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
-    searchAbortRef.current?.abort();
-
-    const normalized = query.trim();
-    if (normalized.length < 2 || !coordinatesRef.current) {
-      setSearchResults([]);
-      setSearchTotal(null);
-      setIsSearching(false);
-      return;
-    }
-
-    setIsSearching(true);
-    searchTimeoutRef.current = setTimeout(async () => {
-      const controller = new AbortController();
-      searchAbortRef.current = controller;
-      const currentCoordinates = coordinatesRef.current;
-      if (!currentCoordinates) return;
-
-      try {
-        const params = new URLSearchParams({
-          q: normalized,
-          lat: String(currentCoordinates.latitude),
-          lng: String(currentCoordinates.longitude),
-        });
-        const response = await fetch(`/api/stops/search?${params}`, {
-          cache: "no-store",
-          signal: controller.signal,
-        });
-        if (!response.ok) throw new Error(await responseError(response));
-        const payload = (await response.json()) as StopListPayload;
-        setSearchResults(payload.stops);
-        setSearchTotal(payload.total ?? payload.stops.length);
-      } catch (searchError) {
-        if (
-          !(searchError instanceof DOMException) ||
-          searchError.name !== "AbortError"
-        ) {
-          setError(
-            searchError instanceof Error
-              ? searchError.message
-              : "Stop search failed.",
-          );
-        }
-      } finally {
-        if (!controller.signal.aborted) setIsSearching(false);
-      }
-    }, 300);
   }
 
   /** Selects a stop from either the map or combined picker. */
   function chooseStop(stop: StopSummary) {
     setSearchQuery("");
-    setSearchResults([]);
-    setSearchTotal(null);
     void loadStop(stop);
   }
 
@@ -1277,14 +1199,21 @@ export function TickerApp() {
         {expandedSteps.stop && (
         <div id="stop-step-content">
         <StopMap
+          catalogError={catalogError}
+          catalogLoading={catalogLoading}
           center={coordinates}
           onSelectStop={chooseStop}
           selectedStop={selectedStop}
+          stops={catalogStops}
         />
 
         {coordinates && (
           <StopCombobox
-            isLoading={isSearching || (isLocating && nearbyStops.length === 0)}
+            isLoading={
+              catalogLoading ||
+              isSearching ||
+              (isLocating && nearbyStops.length === 0)
+            }
             onQueryChange={updateStopQuery}
             onSelect={chooseStop}
             options={
@@ -1431,16 +1360,16 @@ export function TickerApp() {
       </section>
       )}
 
-      {(error || arrivalError || status) && (
+      {(error || catalogError || arrivalError || status) && (
         <div
           aria-live="polite"
           className={`mb-6 border-l-2 px-3 py-2 text-sm ${
-            error || arrivalError
+            error || catalogError || arrivalError
               ? "border-red-600 bg-red-50 text-red-800"
               : "border-signal bg-signal/8 text-ink"
           }`}
         >
-          {error ?? arrivalError ?? status}
+          {error ?? catalogError ?? arrivalError ?? status}
         </div>
       )}
 
