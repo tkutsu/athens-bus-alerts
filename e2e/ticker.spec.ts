@@ -257,7 +257,7 @@ test("reveals each step only after the previous selection", async ({
   expect(cancelBox!.y).toBeLessThan(favoritesBox!.y);
 });
 
-test("clears the bus selection when an active bus reaches zero", async ({
+test("keeps selections when an active bus reaches zero", async ({
   page,
 }) => {
   await page.addInitScript(() => {
@@ -324,19 +324,37 @@ test("clears the bus selection when an active bus reaches zero", async ({
 
   await page.goto("/");
 
-  await expect(page.getByRole("heading", { name: "02 · BUSES" })).toBeHidden();
-  await expect(page.getByRole("heading", { name: "03 · NOTIFY" })).toBeHidden();
+  const stopToggle = page.getByRole("button", { name: "01 · Stop" });
+  const busesToggle = page.getByRole("button", { name: "02 · Buses" });
+  const notifyToggle = page.getByRole("button", { name: "03 · Notify" });
+
+  await expect(stopToggle).toContainText("HSAP N. FALHROY");
+  await expect(busesToggle).toContainText("218");
+  await expect(notifyToggle).toContainText("10/5/3/1/0 min");
   await expect(
     page.getByRole("heading", { name: "Live arrivals" }),
   ).toBeHidden();
-  await expect(
-    page.getByRole("button", { name: "01 · Stop" }),
-  ).not.toContainText("HSAP N. FALHROY");
   const completedAlert = page.getByRole("region", {
     name: "Alert complete",
   });
   await expect(completedAlert).toBeVisible();
   await expect(completedAlert).toContainText("218 arrived");
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const value = window.localStorage.getItem("athens-bus-ticker:v2");
+        if (!value) return null;
+        const stored = JSON.parse(value);
+        return {
+          selectedStop: stored.selectedStop,
+          selectedLineIds: stored.selectedLineIds,
+        };
+      }),
+    )
+    .toEqual({
+      selectedStop: { code: "400075", name: "HSAP N. FALHROY" },
+      selectedLineIds: ["218"],
+    });
   await completedAlert.getByRole("button", { name: "Cancel alert" }).click();
   await expect(completedAlert).toBeHidden();
 });

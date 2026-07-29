@@ -250,7 +250,9 @@ export function TickerApp() {
     isLoading: arrivalsLoading,
     refresh,
     stale,
-  } = useArrivalPolling(selectedStop?.code ?? null);
+  } = useArrivalPolling(
+    activeAlarm?.completedAt ? null : (selectedStop?.code ?? null),
+  );
 
   const updateAlarm = useCallback((alarm: ActiveAlarm | null) => {
     activeAlarmRef.current = alarm;
@@ -326,10 +328,13 @@ export function TickerApp() {
     if (stored.activeAlarm) {
       setExpandedSteps(COLLAPSED_STEPS);
     }
-    setHydrated(true);
 
     if (stored.selectedStop) {
-      void loadStop(stored.selectedStop, stored.selectedLineIds);
+      void loadStop(stored.selectedStop, stored.selectedLineIds).finally(() => {
+        setHydrated(true);
+      });
+    } else {
+      setHydrated(true);
     }
 
     if ("serviceWorker" in navigator) {
@@ -451,13 +456,6 @@ export function TickerApp() {
       updateAlarm(evaluation.alarm);
 
       if (evaluation.event) {
-        if (evaluation.event.kind === "zero") {
-          // Reaching the stop completes the workflow and stops arrival polling.
-          setSelectedStop(null);
-          setRoutes([]);
-          setLines([]);
-          setSelectedLineIds([]);
-        }
         await showAlert(evaluation.event, alarm);
       }
     },
@@ -1011,6 +1009,7 @@ export function TickerApp() {
             </button>
           </div>
           {selectedStop &&
+            !activeAlarm.completedAt &&
             renderLiveArrivals(
               "mt-4 border-t border-signal/20 pt-4",
               true,

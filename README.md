@@ -15,3 +15,17 @@ pnpm sync:stops
 
 The catalogue only powers name/code search and distance ordering. Live stop
 details, lines, and arrivals are always fetched from OASA Telematics.
+
+## Cloudflare Workers
+
+Build and test the app in the Workers runtime:
+
+```bash
+pnpm preview
+```
+
+Deploy it to the configured `athens-bus-alerts` Worker:
+
+```bash
+pnpm deploy
+```
