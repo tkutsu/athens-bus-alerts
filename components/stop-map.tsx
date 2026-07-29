@@ -6,18 +6,19 @@ import type {
   Map as LeafletMap,
   Marker,
 } from "leaflet";
+import {
+  findStopsInBounds,
+  type CatalogStop,
+} from "@/lib/stop-catalog";
 import type { Coordinates, StopSummary } from "@/lib/types";
 
 interface StopMapProps {
+  catalogError: string | null;
+  catalogLoading: boolean;
   center: Coordinates | null;
   selectedStop: StopSummary | null;
   onSelectStop: (stop: StopSummary) => void;
-}
-
-interface MapStopsPayload {
-  stops: StopSummary[];
-  total: number;
-  truncated: boolean;
+  stops: readonly CatalogStop[];
 }
 
 const ATHENS_CENTER: [number, number] = [37.9838, 23.7275];
@@ -56,9 +57,12 @@ function LocationPinIcon() {
 
 /** Renders the Leaflet stop picker. */
 export function StopMap({
+  catalogError,
+  catalogLoading,
   center,
   selectedStop,
   onSelectStop,
+  stops,
 }: StopMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<LeafletMap | null>(null);
@@ -66,23 +70,30 @@ export function StopMap({
   const userMarkerRef = useRef<Marker | null>(null);
   const leafletRef = useRef<typeof import("leaflet") | null>(null);
   const selectStopRef = useRef(onSelectStop);
+  const stopsRef = useRef(stops);
+  const updateVisibleStopsRef = useRef<(() => void) | null>(null);
   const [mapReady, setMapReady] = useState(false);
   const [visibleStops, setVisibleStops] = useState<StopSummary[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [truncated, setTruncated] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     selectStopRef.current = onSelectStop;
   }, [onSelectStop]);
 
   useEffect(() => {
+    stopsRef.current = stops;
+    const frame = requestAnimationFrame(() =>
+      updateVisibleStopsRef.current?.(),
+    );
+    return () => cancelAnimationFrame(frame);
+  }, [stops]);
+
+  useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
 
     let cancelled = false;
-    let controller: AbortController | null = null;
 
-    /** Loads stops within the visible map bounds. */
+    /** Creates the map and filters the in-memory catalogue on movement. */
     const initialize = async () => {
       const L = await import("leaflet");
       if (cancelled || !containerRef.current) return;
@@ -116,57 +127,33 @@ export function StopMap({
       mapRef.current = map;
       setMapReady(true);
 
-      const loadVisibleStops = async () => {
+      const updateVisibleStops = () => {
         const bounds = map.getBounds();
-        const params = new URLSearchParams({
-          north: String(bounds.getNorth()),
-          south: String(bounds.getSouth()),
-          east: String(bounds.getEast()),
-          west: String(bounds.getWest()),
+        const result = findStopsInBounds(stopsRef.current, {
+          north: bounds.getNorth(),
+          south: bounds.getSouth(),
+          east: bounds.getEast(),
+          west: bounds.getWest(),
         });
-
-        controller?.abort();
-        controller = new AbortController();
-        setIsLoading(true);
-
-        try {
-          const response = await fetch(`/api/stops/map?${params}`, {
-            signal: controller.signal,
-          });
-          if (!response.ok) {
-            throw new Error("Could not load stops for this map area.");
-          }
-
-          const payload = (await response.json()) as MapStopsPayload;
-          setVisibleStops(payload.stops);
-          setTruncated(payload.truncated);
-          setError(null);
-        } catch (loadError) {
-          if (
-            !(loadError instanceof DOMException) ||
-            loadError.name !== "AbortError"
-          ) {
-            setError("Could not load map stops.");
-          }
-        } finally {
-          if (!controller.signal.aborted) setIsLoading(false);
-        }
+        setVisibleStops(result.stops);
+        setTruncated(result.truncated);
       };
 
-      map.on("moveend", loadVisibleStops);
-      await loadVisibleStops();
+      updateVisibleStopsRef.current = updateVisibleStops;
+      map.on("moveend", updateVisibleStops);
+      updateVisibleStops();
     };
 
     void initialize();
 
     return () => {
       cancelled = true;
-      controller?.abort();
       userMarkerRef.current?.remove();
       mapRef.current?.remove();
       mapRef.current = null;
       markersRef.current = null;
       userMarkerRef.current = null;
+      updateVisibleStopsRef.current = null;
     };
     // The map instance is deliberately created only once.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -263,7 +250,7 @@ export function StopMap({
         </div>
       )}
       <div className="pointer-events-none absolute top-2 left-12 z-[500] flex gap-2">
-        {isLoading && (
+        {catalogLoading && (
           <span className="bg-paper/95 px-2 py-1 text-xs shadow">
             Loading stops...
           </span>
@@ -273,9 +260,9 @@ export function StopMap({
             Zoom in for every stop
           </span>
         )}
-        {error && (
+        {catalogError && (
           <span className="bg-red-50 px-2 py-1 text-xs text-red-800 shadow">
-            {error}
+            {catalogError}
           </span>
         )}
       </div>
