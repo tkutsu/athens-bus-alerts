@@ -64,7 +64,6 @@ function Icon({
     | "bell"
     | "bus"
     | "pencil"
-    | "refresh"
     | "star";
   className?: string;
 }) {
@@ -86,12 +85,6 @@ function Icon({
       <>
         <path d="m4 20 4.5-1 10-10a2.1 2.1 0 0 0-3-3l-10 10z" />
         <path d="m14 7 3 3M4 20l1-4 3.5 3" />
-      </>
-    ),
-    refresh: (
-      <>
-        <path d="M20 11a8.1 8.1 0 0 0-15.5-2M4 4v5h5" />
-        <path d="M4 13a8.1 8.1 0 0 0 15.5 2M20 20v-5h-5" />
       </>
     ),
     star: <path d="m12 2 3.1 6.3 6.9 1-5 4.9 1.2 6.8-6.2-3.2L5.8 21 7 14.2l-5-4.9 6.9-1z" />,
@@ -298,7 +291,6 @@ export function TickerApp() {
     data: arrivalData,
     error: arrivalError,
     isLoading: arrivalsLoading,
-    refresh,
     stale,
   } = useArrivalPolling(
     activeAlarm &&
@@ -912,33 +904,13 @@ export function TickerApp() {
   const toastMessage = error ?? catalogError ?? arrivalError ?? status;
   const toastIsError = Boolean(error || catalogError || arrivalError);
 
-  /** Renders arrivals in the normal or active-alert layout. */
+  /** Renders the automatically refreshed arrivals inside the alert card. */
   function renderLiveArrivals(
     className: string,
     edgeToEdge = false,
   ) {
     return (
-      <section aria-labelledby="arrivals-heading" className={className}>
-        <div className="mb-3 flex items-center justify-between">
-          <h2 id="arrivals-heading" className="section-label">
-            Live arrivals
-          </h2>
-          <button
-            className="small-action flex items-center gap-1.5"
-            disabled={arrivalsLoading}
-            onClick={() => void refresh()}
-            type="button"
-          >
-            <Icon
-              name="refresh"
-              className={
-                arrivalsLoading ? "size-4 animate-spin" : "size-4"
-              }
-            />
-            Refresh
-          </button>
-        </div>
-
+      <div className={className}>
         {arrivalsLoading && !arrivalData ? (
           <div
             className={
@@ -1017,7 +989,7 @@ export function TickerApp() {
             }).format(new Date(arrivalData.observedAt))}
           </p>
         )}
-      </section>
+      </div>
     );
   }
 
@@ -1044,7 +1016,10 @@ export function TickerApp() {
 
       {activeAlarm && (
         <section
-          aria-labelledby="active-alert-heading"
+          aria-label={activeAlarm.completedAt ? "Alert complete" : undefined}
+          aria-labelledby={
+            activeAlarm.completedAt ? undefined : "active-alert-heading"
+          }
           className="mb-8 border border-signal/30 bg-signal/8 px-3 py-3"
         >
           <div className="flex items-start justify-between gap-3">
@@ -1053,19 +1028,15 @@ export function TickerApp() {
                 className="section-label mb-1 text-signal"
                 id="active-alert-heading"
               >
-                {activeAlarm.completedAt ? "Alert complete" : "Active alert"}
+                {activeAlarm.completedAt
+                  ? `${activeAlarm.lastObservedLineId ?? "Bus"} arrived`
+                  : "Active alert"}
               </h2>
               <p>
                 <strong>{activeAlarm.stopName}</strong> ·{" "}
                 {activeAlarm.selectedLineIds.join(", ")} ·{" "}
                 {formatThresholds(activeAlarm.optionalThresholds)} min
               </p>
-              {activeAlarm.completedAt &&
-                activeAlarm.lastObservedMinutes !== null && (
-                  <p className="mt-1 text-ink/60">
-                    {activeAlarm.lastObservedLineId ?? "Bus"} arrived
-                  </p>
-                )}
             </div>
             <div className="flex shrink-0 items-center gap-2">
               {activeAlarm.completedAt && (
@@ -1105,7 +1076,7 @@ export function TickerApp() {
           {selectedStop?.code === activeAlarm.stopCode &&
             !activeAlarm.completedAt &&
             renderLiveArrivals(
-              "mt-4 border-t border-signal/20 pt-4",
+              "mt-4 pt-4",
               true,
             )}
         </section>
@@ -1389,7 +1360,7 @@ export function TickerApp() {
               }}
               type="button"
             >
-              <Icon name="bell" className="size-4" />
+              <Icon name="bell" className="notify-bell-ready size-4" />
               Notify me
             </button>
           </div>
