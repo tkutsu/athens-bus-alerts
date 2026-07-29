@@ -74,6 +74,10 @@ summary:focus-visible {
   outline-offset: 2px;
 }
 
+.favorite-name-input:focus-visible {
+  outline: none;
+}
+
 button:disabled,
 input:disabled,
 select:disabled,

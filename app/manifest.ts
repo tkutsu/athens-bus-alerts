@@ -2,8 +2,8 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Athens Bus Alerts",
-    short_name: "Bus Alerts",
+    name: "Athens Bus Notifications",
+    short_name: "Bus Notifications",
     description:
       "Nearby OASA stops, live arrivals, and one-tap notification presets.",
     start_url: "/",

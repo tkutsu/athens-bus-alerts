@@ -85,14 +85,16 @@ test("reveals each step only after the previous selection", async ({
   await page.goto("/");
 
   await expect(
-    page.getByRole("heading", { name: "Athens Bus Alerts" }),
+    page.getByRole("heading", { name: "Athens Bus Notifications" }),
   ).toBeVisible();
   await expect(page.getByText("Athens Bus Ticker")).toHaveCount(0);
   await expect(
-    page.getByText("Pick stop · Pick bus · Get alert"),
+    page.getByText("Pick stop · Pick bus · Get notified"),
   ).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Find closest" }),
+    page.getByRole("button", {
+      name: "Refresh and center on your location",
+    }),
   ).toBeVisible();
   await expect(page.getByLabel("Map of OASA bus stops")).toBeVisible();
   const stopPicker = page.getByRole("combobox", {
@@ -104,16 +106,21 @@ test("reveals each step only after the previous selection", async ({
   await expect(page.getByText("10 min")).toBeHidden();
   await expect(page.getByPlaceholder("New favorite")).toBeHidden();
 
-  const stopToggle = page.getByRole("button", { name: "01 · Stop" });
+  const stopToggle = page.getByRole("button", { name: "01 · Bus stop" });
   await stopToggle.click();
   await expect(stopToggle).toHaveAttribute("aria-expanded", "false");
   await expect(page.getByLabel("Map of OASA bus stops")).toBeHidden();
   await expect(
-    page.getByRole("button", { name: "Find closest" }),
+    page.getByRole("button", {
+      name: "Refresh and center on your location",
+    }),
   ).toBeHidden();
   await stopToggle.click();
 
   await expect(page.getByText("Your position")).toBeVisible();
+  await expect(
+    page.locator(".leaflet-marker-icon path").first(),
+  ).toHaveAttribute("fill", "#e5562f");
   const mapBox = await page.getByLabel("Map of OASA bus stops").boundingBox();
   const stopSelectBox = await stopPicker.boundingBox();
   expect(mapBox).not.toBeNull();
@@ -124,7 +131,9 @@ test("reveals each step only after the previous selection", async ({
   await expect(
     page.getByRole("option", { name: /1\. HSAP N\. FALHROY/ }),
   ).toBeVisible();
-  await page.getByRole("heading", { name: "Athens Bus Alerts" }).click();
+  await page
+    .getByRole("heading", { name: "Athens Bus Notifications" })
+    .click();
   await expect(page.getByRole("listbox")).toBeHidden();
 
   await stopPicker.fill("syntagma");
@@ -139,6 +148,9 @@ test("reveals each step only after the previous selection", async ({
 
   await expect(stopToggle).toContainText("HSAP N. FALHROY");
   await expect(stopToggle).not.toContainText("#400075");
+  await expect(
+    page.getByText("HSAP N. FALHROY", { exact: true }),
+  ).toHaveCount(1);
   await expect(page.getByRole("button", { name: "218" })).toBeVisible();
   expect(catalogueRequestCount).toBe(1);
   expect(discoveryApiRequests).toEqual([]);
@@ -172,8 +184,11 @@ test("reveals each step only after the previous selection", async ({
   await expect(
     page.getByRole("button", { name: "Save favorite" }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Save favorite" }).click();
+  await page.getByPlaceholder("New favorite").press("Enter");
   await expect(page.getByText('Saved "Home".')).toBeVisible();
+  await expect(page.getByRole("status")).toHaveClass(/fixed/);
+  await page.getByRole("button", { name: "Dismiss message" }).click();
+  await expect(page.getByRole("status")).toBeHidden();
   const savedFavoriteBox = await page
     .getByRole("button", { name: /Home HSAP N\. FALHROY/ })
     .boundingBox();
@@ -200,6 +215,10 @@ test("reveals each step only after the previous selection", async ({
   ).toBeLessThan(2);
   await page.getByRole("button", { name: "Edit new favorite" }).click();
   await expect(page.getByPlaceholder("New favorite")).toBeFocused();
+  await expect(page.getByPlaceholder("New favorite")).toHaveCSS(
+    "outline-style",
+    "none",
+  );
 
   await page.getByRole("button", { name: "10 min" }).click();
   const favoriteMenu = page.locator("details[data-favorite-menu]");
@@ -213,7 +232,9 @@ test("reveals each step only after the previous selection", async ({
 
   await favoriteMenu.locator("summary").click();
   await expect(favoriteMenu).toHaveAttribute("open", "");
-  await page.getByRole("heading", { name: "Athens Bus Alerts" }).click();
+  await page
+    .getByRole("heading", { name: "Athens Bus Notifications" })
+    .click();
   await expect(favoriteMenu).not.toHaveAttribute("open", "");
 
   await expect
@@ -250,7 +271,7 @@ test("reveals each step only after the previous selection", async ({
     name: "Active alert",
   });
   await expect(
-    page.getByRole("button", { name: "01 · Stop" }),
+    page.getByRole("button", { name: "01 · Bus stop" }),
   ).toHaveAttribute("aria-expanded", "false");
   await expect(
     page.getByRole("button", { name: "02 · Buses" }),
@@ -264,6 +285,10 @@ test("reveals each step only after the previous selection", async ({
   await expect(
     page.getByRole("heading", { name: "Live arrivals" }),
   ).toHaveCount(1);
+  await expect(activeAlertPanel.getByText(/^Earliest /)).toHaveCount(0);
+  await expect(activeAlertPanel.getByText(/Updated/)).toHaveClass(
+    /text-right/,
+  );
 
   page.once("dialog", async (dialog) => {
     expect(dialog.message()).toBe("Replace the currently active alert?");
@@ -375,7 +400,7 @@ test("keeps selections and can restart after a bus reaches zero", async ({
 
   await page.goto("/");
 
-  const stopToggle = page.getByRole("button", { name: "01 · Stop" });
+  const stopToggle = page.getByRole("button", { name: "01 · Bus stop" });
   const busesToggle = page.getByRole("button", { name: "02 · Buses" });
   const notifyToggle = page.getByRole("button", { name: "03 · Notify" });
 

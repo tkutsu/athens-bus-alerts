@@ -16,7 +16,10 @@ interface StopMapProps {
   catalogError: string | null;
   catalogLoading: boolean;
   center: Coordinates | null;
+  focusCenter: Coordinates | null;
+  isLocating: boolean;
   selectedStop: StopSummary | null;
+  onRefreshLocation: () => void;
   onSelectStop: (stop: StopSummary) => void;
   stops: readonly CatalogStop[];
 }
@@ -29,7 +32,7 @@ export const OASA_MAP_BOUNDS: [[number, number], [number, number]] = [
 ];
 const USER_LOCATION_PIN_HTML = `
   <svg aria-hidden="true" width="28" height="36" viewBox="0 0 28 36">
-    <path d="M14 1.5C7.4 1.5 2 6.9 2 13.5 2 22.1 14 34 14 34s12-11.9 12-20.5C26 6.9 20.6 1.5 14 1.5Z" fill="#dc2626" stroke="#fff" stroke-width="2.5" stroke-linejoin="round" />
+    <path d="M14 1.5C7.4 1.5 2 6.9 2 13.5 2 22.1 14 34 14 34s12-11.9 12-20.5C26 6.9 20.6 1.5 14 1.5Z" fill="#e5562f" stroke="#fff" stroke-width="2.5" stroke-linejoin="round" />
     <circle cx="14" cy="13.5" r="4.5" fill="#fff" />
   </svg>
 `;
@@ -45,7 +48,7 @@ function LocationPinIcon() {
     >
       <path
         d="M14 1.5C7.4 1.5 2 6.9 2 13.5 2 22.1 14 34 14 34s12-11.9 12-20.5C26 6.9 20.6 1.5 14 1.5Z"
-        fill="#dc2626"
+        fill="#e5562f"
         stroke="#fff"
         strokeLinejoin="round"
         strokeWidth="2.5"
@@ -60,7 +63,10 @@ export function StopMap({
   catalogError,
   catalogLoading,
   center,
+  focusCenter,
+  isLocating,
   selectedStop,
+  onRefreshLocation,
   onSelectStop,
   stops,
 }: StopMapProps) {
@@ -205,7 +211,6 @@ export function StopMap({
     ];
     if (userMarkerRef.current) {
       userMarkerRef.current.setLatLng(position);
-      map.panTo(position);
       return;
     }
 
@@ -228,6 +233,15 @@ export function StopMap({
     map.setView(position, 16);
   }, [center, mapReady]);
 
+  /** Recenters only after an explicit location refresh. */
+  useEffect(() => {
+    if (!focusCenter || !mapRef.current) return;
+    mapRef.current.panTo([
+      focusCenter.latitude,
+      focusCenter.longitude,
+    ]);
+  }, [focusCenter]);
+
   useEffect(() => {
     if (!selectedStop || !mapRef.current) return;
     mapRef.current.panTo([
@@ -243,6 +257,33 @@ export function StopMap({
         className="h-80 w-full"
         ref={containerRef}
       />
+      <button
+        aria-label="Refresh and center on your location"
+        className="absolute right-2 bottom-8 z-[500] flex size-10 items-center justify-center border border-ink/20 bg-paper/95 text-signal shadow transition hover:bg-paper disabled:text-ink/35"
+        disabled={isLocating}
+        onClick={onRefreshLocation}
+        title={
+          isLocating
+            ? "Refreshing your location"
+            : "Refresh and center on your location"
+        }
+        type="button"
+      >
+        <svg
+          aria-hidden="true"
+          className={`size-5 ${isLocating ? "animate-pulse" : ""}`}
+          fill="none"
+          stroke="currentColor"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth="2"
+          viewBox="0 0 24 24"
+        >
+          <circle cx="12" cy="12" r="3" />
+          <path d="M12 2v3m0 14v3M2 12h3m14 0h3" />
+          <circle cx="12" cy="12" r="8" />
+        </svg>
+      </button>
       {center && (
         <div className="pointer-events-none absolute top-2 right-2 z-[500] flex items-center gap-1.5 bg-paper/95 px-2 py-1 text-xs shadow">
           <LocationPinIcon />
