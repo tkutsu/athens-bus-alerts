@@ -1,0 +1,195 @@
+@import "tailwindcss";
+@import "leaflet/dist/leaflet.css";
+
+@theme inline {
+  --color-paper: #f4f2ec;
+  --color-ink: #17201b;
+  --color-signal: #e5562f;
+  --font-display: var(--font-display);
+  --font-mono: var(--font-mono);
+}
+
+:root {
+  --font-display: "Avenir Next", Avenir, "Segoe UI", sans-serif;
+  --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: #f4f2ec;
+}
+
+body {
+  margin: 0;
+  color: #17201b;
+  cursor: default;
+  background:
+    repeating-linear-gradient(
+      135deg,
+      rgb(23 32 27 / 0.016) 0,
+      rgb(23 32 27 / 0.016) 1px,
+      transparent 1px,
+      transparent 12px
+    ),
+    repeating-linear-gradient(
+      72deg,
+      transparent 0,
+      transparent 31px,
+      rgb(116 96 64 / 0.008) 32px,
+      transparent 33px,
+      transparent 47px
+    ),
+    #f4f2ec;
+  font-family: "Avenir Next", Avenir, "Segoe UI", sans-serif;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button:not(:disabled),
+select:not(:disabled),
+summary {
+  cursor: pointer;
+}
+
+input:not(:disabled),
+textarea:not(:disabled),
+[contenteditable="true"] {
+  cursor: text;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+summary:focus-visible {
+  outline: 2px solid #e5562f;
+  outline-offset: 2px;
+}
+
+button:disabled,
+input:disabled,
+select:disabled,
+textarea:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+@layer components {
+  .section-label {
+    @apply text-xs font-bold tracking-[0.18em] text-ink/60 uppercase;
+  }
+
+  .field {
+    @apply h-11 w-full border border-ink/20 bg-white/55 px-3 text-sm text-ink outline-none transition focus:border-signal;
+  }
+
+  .primary-button {
+    @apply h-11 bg-ink px-4 text-sm font-bold text-paper transition hover:bg-signal;
+  }
+
+  .secondary-button {
+    @apply h-11 border border-ink/25 bg-transparent px-4 text-sm font-semibold text-ink transition hover:border-ink hover:bg-white/40;
+  }
+
+  .danger-button {
+    @apply h-11 border border-red-700 px-4 text-sm font-bold text-red-800 transition hover:bg-red-50;
+  }
+
+  .small-action {
+    @apply border-0 bg-transparent px-1 py-1 text-xs font-semibold text-signal hover:text-signal;
+  }
+
+  .menu-action {
+    @apply block w-full px-2 py-1.5 text-left text-xs hover:bg-ink/5;
+  }
+
+  .time-chip {
+    @apply min-h-10 border border-ink/20 px-3 font-mono text-sm font-semibold text-ink/60 transition hover:border-ink;
+  }
+
+  .time-chip-selected {
+    @apply min-h-10 border border-signal bg-signal px-3 font-mono text-sm font-bold text-white;
+  }
+
+  .time-chip-required {
+    @apply inline-flex min-h-10 items-center border border-dashed border-ink/30 px-3 font-mono text-sm font-semibold text-ink/55;
+  }
+
+  .arrival-line {
+    @apply inline-flex min-h-8 items-center justify-center border border-ink/25 px-2 font-mono text-sm font-bold;
+  }
+
+  .arrival-line-selected {
+    @apply inline-flex min-h-8 items-center justify-center bg-signal px-2 font-mono text-sm font-bold text-white;
+  }
+
+  .empty-copy {
+    @apply border-y border-dashed border-ink/20 py-5 text-sm text-ink/45;
+  }
+}
+
+.ticker-skeleton {
+  height: 126px;
+  border-block: 1px solid rgb(23 32 27 / 0.15);
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 40px,
+    rgb(23 32 27 / 0.08) 41px,
+    transparent 42px
+  );
+}
+
+.ticker-skeleton-active {
+  border-color: rgb(229 86 47 / 0.25);
+}
+
+.pulse-dot {
+  animation: pulse-dot 1.8s ease-out infinite;
+}
+
+.alert-dismiss,
+.small-action {
+  transition: transform 120ms ease-out;
+}
+
+.alert-dismiss:hover,
+.small-action:not(:disabled):hover {
+  transform: translateY(-1px) scale(1.05);
+}
+
+@keyframes pulse-dot {
+  0% {
+    box-shadow: 0 0 0 0 rgb(229 86 47 / 0.5);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgb(229 86 47 / 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgb(229 86 47 / 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pulse-dot {
+    animation: none;
+  }
+
+  .alert-dismiss,
+  .small-action {
+    transition: none;
+  }
+
+  .alert-dismiss:hover,
+  .small-action:hover {
+    transform: none;
+  }
+}
