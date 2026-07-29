@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import stopCatalog from "@/data/stops.json";
+import stopCatalog from "@/public/data/stops.json";
 import { OASA_MAP_BOUNDS } from "@/components/stop-map";
 
 describe("OASA map bounds", () => {

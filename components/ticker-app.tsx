@@ -2,6 +2,7 @@
 
 import {
   useCallback,
+  useDeferredValue,
   useEffect,
   useMemo,
   useRef,
@@ -12,7 +13,7 @@ import {
   type AlertEvent,
   type CandidateArrival,
 } from "@/lib/alerts";
-import { formatDistance, haversineMeters } from "@/lib/distance";
+import { haversineMeters } from "@/lib/distance";
 import {
   clearStoredState,
   readStoredState,
@@ -31,7 +32,13 @@ import {
   type StopSummary,
 } from "@/lib/types";
 import { dedupeArrivals } from "@/lib/arrivals";
+import {
+  findClosestStops,
+  searchStopNames,
+} from "@/lib/stop-catalog";
 import { useArrivalPolling } from "@/hooks/use-arrival-polling";
+import { useStopCatalog } from "@/hooks/use-stop-catalog";
+import { StopCombobox } from "@/components/stop-combobox";
 import { StopMap } from "@/components/stop-map";
 
 interface StopDetailsPayload {
@@ -40,13 +47,9 @@ interface StopDetailsPayload {
   lines: ServingLine[];
 }
 
-interface StopListPayload {
-  stops: StopSummary[];
-  total?: number;
-}
-
 type StepName = "stop" | "buses" | "notify";
-const MESSAGE_DISMISS_MS = 30_000;
+const TOAST_DISMISS_MS = 10_000;
+const LOCATION_REFRESH_MS = 20_000;
 const COLLAPSED_STEPS: Record<StepName, boolean> = {
   stop: false,
   buses: false,
@@ -60,10 +63,7 @@ function Icon({
   name:
     | "bell"
     | "bus"
-    | "locate"
     | "pencil"
-    | "refresh"
-    | "search"
     | "star";
   className?: string;
 }) {
@@ -81,29 +81,10 @@ function Icon({
         <path d="M8 15h.01M16 15h.01" />
       </>
     ),
-    locate: (
-      <>
-        <circle cx="12" cy="12" r="3" />
-        <path d="M12 2v3m0 14v3M2 12h3m14 0h3" />
-        <circle cx="12" cy="12" r="8" />
-      </>
-    ),
     pencil: (
       <>
         <path d="m4 20 4.5-1 10-10a2.1 2.1 0 0 0-3-3l-10 10z" />
         <path d="m14 7 3 3M4 20l1-4 3.5 3" />
-      </>
-    ),
-    refresh: (
-      <>
-        <path d="M20 11a8.1 8.1 0 0 0-15.5-2M4 4v5h5" />
-        <path d="M4 13a8.1 8.1 0 0 0 15.5 2M20 20v-5h-5" />
-      </>
-    ),
-    search: (
-      <>
-        <circle cx="11" cy="11" r="7" />
-        <path d="m20 20-4-4" />
       </>
     ),
     star: <path d="m12 2 3.1 6.3 6.9 1-5 4.9 1.2 6.8-6.2-3.2L5.8 21 7 14.2l-5-4.9 6.9-1z" />,
@@ -123,6 +104,61 @@ function Icon({
     >
       {paths[name]}
     </svg>
+  );
+}
+
+/** Shows one temporary, dismissible message above the app. */
+function Toast({
+  isError,
+  message,
+  onDismiss,
+}: {
+  isError: boolean;
+  message: string;
+  onDismiss: () => void;
+}) {
+  const [visible, setVisible] = useState(true);
+  const onDismissRef = useRef(onDismiss);
+
+  useEffect(() => {
+    onDismissRef.current = onDismiss;
+  }, [onDismiss]);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setVisible(false);
+      onDismissRef.current();
+    }, TOAST_DISMISS_MS);
+    return () => window.clearTimeout(timeout);
+  }, []);
+
+  if (!visible) return null;
+
+  return (
+    <div
+      aria-live={isError ? "assertive" : "polite"}
+      className={`fixed top-4 left-1/2 z-[1000] flex w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 items-start gap-3 px-4 py-3 text-sm shadow-lg ${
+        isError
+          ? "border border-red-700/25 bg-red-50 text-red-900"
+          : "border border-ink/15 bg-ink text-paper"
+      }`}
+      role={isError ? "alert" : "status"}
+    >
+      <p className="min-w-0 flex-1">{message}</p>
+      <button
+        aria-label="Dismiss message"
+        className="flex size-6 shrink-0 items-center justify-center text-current/70 hover:text-current"
+        onClick={() => {
+          setVisible(false);
+          onDismiss();
+        }}
+        type="button"
+      >
+        <span aria-hidden="true" className="text-lg leading-none">
+          ×
+        </span>
+      </button>
+    </div>
   );
 }
 
@@ -196,6 +232,14 @@ function formatThresholds(thresholds: readonly OptionalThreshold[]) {
   return [...thresholds, 0].join("/");
 }
 
+/** Formats short user-facing lists with a natural final conjunction. */
+function formatList(items: readonly string[]) {
+  return new Intl.ListFormat("en", {
+    style: "long",
+    type: "conjunction",
+  }).format(items);
+}
+
 /** Joins OASA route codes to the line identifiers used by alarms. */
 function buildCandidateArrivals(
   arrivals: Arrival[],
@@ -214,9 +258,7 @@ function buildCandidateArrivals(
 export function TickerApp() {
   const [hydrated, setHydrated] = useState(false);
   const [coordinates, setCoordinates] = useState<Coordinates | null>(null);
-  const [nearbyStops, setNearbyStops] = useState<StopSummary[]>([]);
-  const [searchResults, setSearchResults] = useState<StopSummary[]>([]);
-  const [searchTotal, setSearchTotal] = useState<number | null>(null);
+  const [mapFocus, setMapFocus] = useState<Coordinates | null>(null);
   const [selectedStop, setSelectedStop] = useState<StopSummary | null>(null);
   const [routes, setRoutes] = useState<ServingRoute[]>([]);
   const [lines, setLines] = useState<ServingLine[]>([]);
@@ -229,11 +271,12 @@ export function TickerApp() {
   const activeAlarmRef = useRef<ActiveAlarm | null>(null);
   const hydrationStartedRef = useRef(false);
   const favoriteNameInputRef = useRef<HTMLInputElement | null>(null);
+  const coordinatesRef = useRef<Coordinates | null>(null);
+  const locationDeniedRef = useRef(false);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLocating, setIsLocating] = useState(false);
   const [isLoadingStop, setIsLoadingStop] = useState(false);
-  const [isSearching, setIsSearching] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [favoriteName, setFavoriteName] = useState("");
   const [expandedSteps, setExpandedSteps] = useState<
@@ -248,9 +291,42 @@ export function TickerApp() {
     data: arrivalData,
     error: arrivalError,
     isLoading: arrivalsLoading,
-    refresh,
     stale,
-  } = useArrivalPolling(selectedStop?.code ?? null);
+  } = useArrivalPolling(
+    activeAlarm &&
+      !activeAlarm.completedAt &&
+      activeAlarm.stopCode === selectedStop?.code
+      ? activeAlarm.stopCode
+      : null,
+  );
+  const {
+    stops: catalogStops,
+    error: catalogError,
+    isLoading: catalogLoading,
+  } = useStopCatalog();
+  const deferredSearchQuery = useDeferredValue(searchQuery);
+  const nearbyStops = useMemo(
+    () =>
+      coordinates
+        ? findClosestStops(catalogStops, coordinates)
+        : [],
+    [catalogStops, coordinates],
+  );
+  const searchResult = useMemo(
+    () =>
+      coordinates
+        ? searchStopNames(
+            catalogStops,
+            deferredSearchQuery,
+            coordinates,
+          )
+        : { stops: [], total: 0 },
+    [catalogStops, coordinates, deferredSearchQuery],
+  );
+  const searchResults = searchResult.stops;
+  const searchTotal =
+    searchQuery.trim().length >= 2 ? searchResult.total : null;
+  const isSearching = searchQuery !== deferredSearchQuery;
 
   const updateAlarm = useCallback((alarm: ActiveAlarm | null) => {
     activeAlarmRef.current = alarm;
@@ -272,7 +348,7 @@ export function TickerApp() {
         activeAlarmRef.current.stopCode !== requestedStop.code
       ) {
         updateAlarm(null);
-        setStatus("The previous alert was cancelled because the stop changed.");
+        setStatus("Notifications for your previous stop are now off.");
       }
 
       try {
@@ -326,10 +402,13 @@ export function TickerApp() {
     if (stored.activeAlarm) {
       setExpandedSteps(COLLAPSED_STEPS);
     }
-    setHydrated(true);
 
     if (stored.selectedStop) {
-      void loadStop(stored.selectedStop, stored.selectedLineIds);
+      void loadStop(stored.selectedStop, stored.selectedLineIds).finally(() => {
+        setHydrated(true);
+      });
+    } else {
+      setHydrated(true);
     }
 
     if ("serviceWorker" in navigator) {
@@ -359,17 +438,6 @@ export function TickerApp() {
   ]);
 
   useEffect(() => {
-    if (!error && !status) return;
-
-    // Clear transient messages after 30 seconds.
-    const timeout = window.setTimeout(() => {
-      setError(null);
-      setStatus(null);
-    }, MESSAGE_DISMISS_MS);
-    return () => window.clearTimeout(timeout);
-  }, [error, status]);
-
-  useEffect(() => {
     const closeFavoriteMenus = (event: PointerEvent) => {
       const target = event.target;
       if (!(target instanceof Node)) return;
@@ -392,8 +460,6 @@ export function TickerApp() {
     () => new Map(routes.map((route) => [route.routeCode, route])),
     [routes],
   );
-  const stopOptions =
-    searchTotal !== null ? searchResults : nearbyStops;
   const uniqueArrivals = useMemo(
     () => dedupeArrivals(arrivalData?.arrivals ?? []),
     [arrivalData?.arrivals],
@@ -430,8 +496,8 @@ export function TickerApp() {
         }
         setStatus(
           event.kind === "zero"
-            ? `${line} is due. Alert finished.`
-            : `${event.threshold}-minute alert sent for ${line} at ${event.minutes} min.`,
+            ? `${line} is due now. Notifications for this trip are complete.`
+            : `Notification sent: ${line} is ${event.minutes} min away.`,
         );
       } catch {
         setStatus(`${title}. ${body}`);
@@ -451,13 +517,6 @@ export function TickerApp() {
       updateAlarm(evaluation.alarm);
 
       if (evaluation.event) {
-        if (evaluation.event.kind === "zero") {
-          // Reaching the stop completes the workflow and stops arrival polling.
-          setSelectedStop(null);
-          setRoutes([]);
-          setLines([]);
-          setSelectedLineIds([]);
-        }
         await showAlert(evaluation.event, alarm);
       }
     },
@@ -469,7 +528,9 @@ export function TickerApp() {
     if (
       !alarm ||
       !arrivalData ||
-      alarm.stopCode !== selectedStop?.code
+      alarm.stopCode !== selectedStop?.code ||
+      new Date(arrivalData.observedAt).getTime() <
+        new Date(alarm.armedAt).getTime()
     ) {
       return;
     }
@@ -513,7 +574,7 @@ export function TickerApp() {
 
     const permission = await Notification.requestPermission();
     if (permission !== "granted") {
-      setError("Notification permission is required to arm an alert.");
+      setError("Allow browser notifications to continue.");
       return false;
     }
     return true;
@@ -544,109 +605,118 @@ export function TickerApp() {
     updateAlarm(alarm);
     setExpandedSteps(COLLAPSED_STEPS);
     setStatus(
-      `Alert armed for ${lineIds.join(", ")}. Zero minutes is always included.`,
+      `Notifications are on for ${formatList(lineIds)}. We'll notify you at ${formatList(
+        [...alarmThresholds, 0].map(String),
+      )} minutes.`,
     );
-
-    if (arrivalData && stop.code === selectedStop?.code) {
-      await processAlarm(alarm, candidates, new Date(arrivalData.observedAt));
-    }
   }
 
-  /** Gets the device position and loads the ten nearest stops. */
-  async function locate() {
-    setIsLocating(true);
-    setError(null);
-    setStatus(null);
-
-    if (!navigator.geolocation) {
-      setError("Location is not supported. Choose a stop on the map.");
-      setIsLocating(false);
-      return;
-    }
-
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        const nextCoordinates = {
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-        };
-        setCoordinates(nextCoordinates);
-
-        try {
-          const response = await fetch(
-            `/api/nearby-stops?lat=${nextCoordinates.latitude}&lng=${nextCoordinates.longitude}`,
-            { cache: "no-store" },
-          );
-          if (!response.ok) throw new Error(await responseError(response));
-          const payload = (await response.json()) as StopListPayload;
-          setNearbyStops(payload.stops);
-          setSearchResults([]);
-          setSearchTotal(null);
-          setSearchQuery("");
-          if (payload.stops[0]) {
-            await loadStop(payload.stops[0]);
+  /** Re-arms a completed alert with its previous stop, buses, and times. */
+  async function restartAlarm(alarm: ActiveAlarm) {
+    const currentLineIds = new Set(lines.map((line) => line.lineId));
+    const loaded =
+      selectedStop?.code === alarm.stopCode
+        ? {
+            stop: selectedStop,
+            validLines: alarm.selectedLineIds.filter((lineId) =>
+              currentLineIds.has(lineId),
+            ),
           }
-          setStatus("Showing the closest stops.");
-        } catch (locateError) {
-          setError(
-            locateError instanceof Error
-              ? locateError.message
-              : "Could not find nearby stops.",
+        : await loadStop(
+            { code: alarm.stopCode, name: alarm.stopName },
+            alarm.selectedLineIds,
           );
-        } finally {
-          setIsLocating(false);
-        }
-      },
-      (locationError) => {
-        const messages: Record<number, string> = {
-          1: "Location was denied. Choose a stop on the map.",
-          2: "Your location is unavailable. Try again or use the map.",
-          3: "Location timed out. Try again or use the map.",
-        };
-        setError(messages[locationError.code] ?? "Could not get your location.");
-        setIsLocating(false);
-      },
-      { enableHighAccuracy: true, maximumAge: 60_000, timeout: 10_000 },
-    );
-  }
 
-  /** Searches all stops and sorts matches by distance. */
-  async function searchStops(event: React.FormEvent) {
-    event.preventDefault();
-    if (!coordinates) {
-      setError("Use your location before searching, so results can be distance-sorted.");
+    if (!loaded || loaded.validLines.length === 0) {
+      setError("The saved buses no longer serve this stop.");
       return;
     }
 
-    setIsSearching(true);
-    setError(null);
-    try {
-      const params = new URLSearchParams({
-        q: searchQuery,
-        lat: String(coordinates.latitude),
-        lng: String(coordinates.longitude),
-      });
-      const response = await fetch(`/api/stops/search?${params}`, {
-        cache: "no-store",
-      });
-      if (!response.ok) throw new Error(await responseError(response));
-      const payload = (await response.json()) as StopListPayload;
-      setSearchResults(payload.stops);
-      setSearchTotal(payload.total ?? payload.stops.length);
-      setStatus(
-        payload.stops.length
-          ? `${payload.total ?? payload.stops.length} matching stops, sorted by distance.`
-          : "No matching stops found.",
+    setThresholds(alarm.optionalThresholds);
+    setSelectedLineIds(loaded.validLines);
+    await armWith(
+      loaded.stop,
+      loaded.validLines,
+      alarm.optionalThresholds,
+    );
+  }
+
+  /** Reads the device location used for client-side stop ordering. */
+  const locate = useCallback(
+    (force = false) => {
+      if (locationDeniedRef.current && !force) return;
+
+      const showProgress = force || coordinatesRef.current === null;
+      if (showProgress) {
+        setIsLocating(true);
+        setError(null);
+      }
+
+      if (!navigator.geolocation) {
+        setError("Location is not supported. Choose a stop on the map.");
+        setIsLocating(false);
+        return;
+      }
+
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const nextCoordinates = {
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+          };
+          locationDeniedRef.current = false;
+          coordinatesRef.current = nextCoordinates;
+          setCoordinates(nextCoordinates);
+          if (force) setMapFocus(nextCoordinates);
+          if (force) setStatus("Map centered on your location.");
+          if (showProgress) setIsLocating(false);
+        },
+        (locationError) => {
+          if (locationError.code === 1) locationDeniedRef.current = true;
+          if (showProgress) {
+            const messages: Record<number, string> = {
+              1: "Location was denied. Choose a stop on the map.",
+              2: "Your location is unavailable. Try again or use the map.",
+              3: "Location timed out. Try again or use the map.",
+            };
+            setError(
+              messages[locationError.code] ?? "Could not get your location.",
+            );
+            setIsLocating(false);
+          }
+        },
+        {
+          enableHighAccuracy: false,
+          maximumAge: force ? 0 : 20_000,
+          timeout: 10_000,
+        },
       );
-    } catch (searchError) {
-      setError(
-        searchError instanceof Error
-          ? searchError.message
-          : "Stop search failed.",
-      );
-    } finally {
-      setIsSearching(false);
-    }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!hydrated) return;
+
+    // The catalogue stays in the browser, so each location fix can reorder it
+    // without making a Worker request.
+    const initialLocation = window.setTimeout(locate, 0);
+    const interval = window.setInterval(locate, LOCATION_REFRESH_MS);
+    return () => {
+      window.clearTimeout(initialLocation);
+      window.clearInterval(interval);
+    };
+  }, [hydrated, locate]);
+
+  /** Updates the client-side stop-name search. */
+  function updateStopQuery(query: string) {
+    setSearchQuery(query);
+  }
+
+  /** Selects a stop from either the map or combined picker. */
+  function chooseStop(stop: StopSummary) {
+    setSearchQuery("");
+    void loadStop(stop);
   }
 
   function toggleLine(lineId: string) {
@@ -732,7 +802,9 @@ export function TickerApp() {
     }
 
     if (loaded.validLines.length !== favorite.lineIds.length) {
-      setStatus("Some saved lines no longer serve this stop and were removed.");
+      setStatus(
+        "Some saved buses no longer serve this stop, so we removed them.",
+      );
     }
 
     const enabledAt = new Date().toISOString();
@@ -820,7 +892,7 @@ export function TickerApp() {
     setThresholds([...OPTIONAL_THRESHOLDS]);
     setFavorites([]);
     updateAlarm(null);
-    setStatus("Saved data cleared.");
+    setStatus("Your saved data was cleared.");
   }
 
   const displayArrivals = uniqueArrivals.map((arrival) => ({
@@ -829,34 +901,16 @@ export function TickerApp() {
   }));
   const canSaveFavorite =
     selectedStop !== null && selectedLineIds.length > 0;
+  const toastMessage = error ?? catalogError ?? arrivalError ?? status;
+  const toastIsError = Boolean(error || catalogError || arrivalError);
 
-  /** Renders arrivals in the normal or active-alert layout. */
+  /** Renders the automatically refreshed arrivals inside the alert card. */
   function renderLiveArrivals(
     className: string,
     edgeToEdge = false,
   ) {
     return (
-      <section aria-labelledby="arrivals-heading" className={className}>
-        <div className="mb-3 flex items-center justify-between">
-          <h2 id="arrivals-heading" className="section-label">
-            Live arrivals
-          </h2>
-          <button
-            className="small-action flex items-center gap-1.5"
-            disabled={arrivalsLoading}
-            onClick={() => void refresh()}
-            type="button"
-          >
-            <Icon
-              name="refresh"
-              className={
-                arrivalsLoading ? "size-4 animate-spin" : "size-4"
-              }
-            />
-            Refresh
-          </button>
-        </div>
-
+      <div className={className}>
         {arrivalsLoading && !arrivalData ? (
           <div
             className={
@@ -922,7 +976,7 @@ export function TickerApp() {
 
         {arrivalData && (
           <p
-            className={`mt-2 text-xs ${
+            className={`mt-2 text-right text-xs ${
               stale ? "text-red-700" : "text-ink/45"
             }`}
           >
@@ -935,7 +989,7 @@ export function TickerApp() {
             }).format(new Date(arrivalData.observedAt))}
           </p>
         )}
-      </section>
+      </div>
     );
   }
 
@@ -949,10 +1003,10 @@ export function TickerApp() {
         <div>
           <h1 className="flex items-center gap-2 text-xs font-bold tracking-[0.22em] text-signal uppercase">
             <Icon name="bus" className="size-5" />
-            Athens Bus Alerts
+            Athens Bus Notifications
           </h1>
           <p className="mt-2 text-sm text-ink/55">
-            Pick stop · Pick bus · Get alert
+            Pick stop · Pick bus · Get notified
           </p>
         </div>
         {activeAlarm && (
@@ -962,7 +1016,10 @@ export function TickerApp() {
 
       {activeAlarm && (
         <section
-          aria-labelledby="active-alert-heading"
+          aria-label={activeAlarm.completedAt ? "Alert complete" : undefined}
+          aria-labelledby={
+            activeAlarm.completedAt ? undefined : "active-alert-heading"
+          }
           className="mb-8 border border-signal/30 bg-signal/8 px-3 py-3"
         >
           <div className="flex items-start justify-between gap-3">
@@ -971,48 +1028,55 @@ export function TickerApp() {
                 className="section-label mb-1 text-signal"
                 id="active-alert-heading"
               >
-                {activeAlarm.completedAt ? "Alert complete" : "Active alert"}
+                {activeAlarm.completedAt
+                  ? `${activeAlarm.lastObservedLineId ?? "Bus"} arrived`
+                  : "Active alert"}
               </h2>
               <p>
                 <strong>{activeAlarm.stopName}</strong> ·{" "}
                 {activeAlarm.selectedLineIds.join(", ")} ·{" "}
                 {formatThresholds(activeAlarm.optionalThresholds)} min
               </p>
-              {activeAlarm.lastObservedMinutes !== null && (
-                <p className="mt-1 text-ink/60">
-                  {activeAlarm.completedAt
-                    ? `${activeAlarm.lastObservedLineId ?? "Bus"} arrived`
-                    : `Earliest ${activeAlarm.lastObservedLineId} in ${activeAlarm.lastObservedMinutes} min`}
-                </p>
-              )}
             </div>
-            <button
-              aria-label="Cancel alert"
-              className="alert-dismiss flex size-14 shrink-0 items-center justify-center border-0 bg-transparent text-signal hover:text-signal"
-              onClick={() => {
-                updateAlarm(null);
-                setStatus("Alert cancelled.");
-              }}
-              title="Cancel alert"
-              type="button"
-            >
-              <svg
-                aria-hidden="true"
-                className="size-4"
-                fill="none"
-                stroke="currentColor"
-                strokeLinecap="round"
-                strokeWidth="2.25"
-                suppressHydrationWarning
-                viewBox="0 0 24 24"
+            <div className="flex shrink-0 items-center gap-2">
+              {activeAlarm.completedAt && (
+                <button
+                  className="small-action"
+                  onClick={() => void restartAlarm(activeAlarm)}
+                  type="button"
+                >
+                  Restart
+                </button>
+              )}
+              <button
+                aria-label="Cancel alert"
+                className="alert-dismiss flex size-14 shrink-0 items-center justify-center border-0 bg-transparent text-signal hover:text-signal"
+                onClick={() => {
+                  updateAlarm(null);
+                  setStatus("Notifications are off.");
+                }}
+                title="Cancel alert"
+                type="button"
               >
-                <path d="M3 3 21 21M21 3 3 21" />
-              </svg>
-            </button>
+                <svg
+                  aria-hidden="true"
+                  className="size-4"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeLinecap="round"
+                  strokeWidth="2.25"
+                  suppressHydrationWarning
+                  viewBox="0 0 24 24"
+                >
+                  <path d="M3 3 21 21M21 3 3 21" />
+                </svg>
+              </button>
+            </div>
           </div>
-          {selectedStop &&
+          {selectedStop?.code === activeAlarm.stopCode &&
+            !activeAlarm.completedAt &&
             renderLiveArrivals(
-              "mt-4 border-t border-signal/20 pt-4",
+              "mt-4 pt-4",
               true,
             )}
         </section>
@@ -1089,11 +1153,17 @@ export function TickerApp() {
               </div>
             ))}
             {canSaveFavorite && (
-              <div className="flex items-center gap-3 py-3">
+              <form
+                className="flex items-center gap-3 py-3"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  if (favoriteName.trim()) saveFavorite();
+                }}
+              >
                 <label className="grid min-w-0 flex-1">
                   <input
                     aria-label="New favorite"
-                    className="min-w-0 cursor-text border-0 bg-transparent p-0 font-semibold text-ink outline-none placeholder:text-ink/45"
+                    className="favorite-name-input min-w-0 cursor-text border-0 bg-transparent p-0 font-semibold text-ink outline-none placeholder:text-ink/45"
                     maxLength={40}
                     onChange={(event) =>
                       setFavoriteName(event.target.value)
@@ -1109,14 +1179,13 @@ export function TickerApp() {
                   </span>
                 </label>
                 {favoriteName.trim() && (
-                <button
-                  aria-label="Save favorite"
-                  className="small-action shrink-0"
-                  onClick={saveFavorite}
-                  type="button"
-                >
-                  Save
-                </button>
+                  <button
+                    aria-label="Save favorite"
+                    className="small-action shrink-0"
+                    type="submit"
+                  >
+                    Save
+                  </button>
                 )}
                 <button
                   aria-label="Edit new favorite"
@@ -1126,7 +1195,7 @@ export function TickerApp() {
                 >
                   <Icon name="pencil" className="size-4 text-signal" />
                 </button>
-              </div>
+              </form>
             )}
           </div>
         </section>
@@ -1138,121 +1207,45 @@ export function TickerApp() {
             controls="stop-step-content"
             expanded={expandedSteps.stop}
             id="stop-heading"
-            label="01 · Stop"
+            label="01 · Bus stop"
             onToggle={() => toggleStep("stop")}
             selection={selectedStop?.name}
           />
-          {expandedSteps.stop && (
-            <button
-              className="small-action flex items-center gap-1.5"
-              disabled={isLocating}
-              onClick={() => void locate()}
-              type="button"
-            >
-              <Icon name="locate" className="size-4" />
-              {isLocating ? "Locating..." : "Find closest"}
-            </button>
-          )}
         </div>
 
         {expandedSteps.stop && (
         <div id="stop-step-content">
         <StopMap
+          catalogError={catalogError}
+          catalogLoading={catalogLoading}
           center={coordinates}
-          onSelectStop={(stop) => void loadStop(stop)}
+          focusCenter={mapFocus}
+          isLocating={isLocating}
+          onRefreshLocation={() => locate(true)}
+          onSelectStop={chooseStop}
           selectedStop={selectedStop}
+          stops={catalogStops}
         />
 
-        {stopOptions.length > 0 && (
-          <label className="mt-3 block">
-            <span className="sr-only">Choose a stop</span>
-            <select
-              className="field text-base font-semibold"
-              onChange={(event) => {
-                const stop = stopOptions.find(
-                  (option) => option.code === event.target.value,
-                );
-                if (stop) void loadStop(stop);
-              }}
-              value={
-                stopOptions.some((stop) => stop.code === selectedStop?.code)
-                  ? selectedStop?.code
-                  : ""
-              }
-            >
-              <option disabled value="">
-                Choose a stop
-              </option>
-              {stopOptions.map((stop, index) => (
-                <option key={stop.code} value={stop.code}>
-                  {index + 1}. {stop.name} · {formatDistance(stop.distanceMeters)} · #
-                  {stop.code}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-
         {coordinates && (
-          <form className="mt-3 flex gap-2" onSubmit={searchStops}>
-            <label className="relative min-w-0 flex-1">
-              <span className="sr-only">Search any stop name or code</span>
-              <Icon
-                name="search"
-                className="pointer-events-none absolute top-3 left-3 size-4 text-ink/40"
-              />
-              <input
-                className="field pl-9"
-                onChange={(event) => {
-                  setSearchQuery(event.target.value);
-                  if (!event.target.value) {
-                    setSearchResults([]);
-                    setSearchTotal(null);
-                  }
-                }}
-                placeholder="Search any stop name or code"
-                value={searchQuery}
-              />
-            </label>
-            <button
-              className="secondary-button"
-              disabled={isSearching}
-              type="submit"
-            >
-              {isSearching ? "Searching..." : "Search"}
-            </button>
-          </form>
-        )}
-        {searchTotal !== null && (
-          <p className="mt-2 text-xs text-ink/50">
-            Showing up to 50 of {searchTotal} matches, nearest first.{" "}
-            <button
-              className="small-action underline"
-              onClick={() => {
-                setSearchResults([]);
-                setSearchTotal(null);
-                setSearchQuery("");
-              }}
-              type="button"
-            >
-              Back to closest
-            </button>
-          </p>
+          <StopCombobox
+            isLoading={
+              catalogLoading ||
+              isSearching ||
+              (isLocating && nearbyStops.length === 0)
+            }
+            onQueryChange={updateStopQuery}
+            onSelect={chooseStop}
+            options={
+              searchQuery.trim().length >= 2
+                ? searchResults
+                : nearbyStops
+            }
+            query={searchQuery}
+            resultTotal={searchTotal}
+          />
         )}
 
-        {selectedStop && (
-          <div className="mt-4 flex items-baseline justify-between border-l-2 border-signal pl-3">
-            <div>
-              <p className="font-semibold text-ink">{selectedStop.name}</p>
-              <p className="text-xs text-ink/50">Stop #{selectedStop.code}</p>
-            </div>
-            {selectedStop.distanceMeters > 0 && (
-              <span className="font-mono text-sm text-ink/60">
-                {formatDistance(selectedStop.distanceMeters)}
-              </span>
-            )}
-          </div>
-        )}
         </div>
         )}
       </section>
@@ -1367,7 +1360,7 @@ export function TickerApp() {
               }}
               type="button"
             >
-              <Icon name="bell" className="size-4" />
+              <Icon name="bell" className="notify-bell-ready size-4" />
               Notify me
             </button>
           </div>
@@ -1377,19 +1370,16 @@ export function TickerApp() {
       </section>
       )}
 
-      {selectedStop && !activeAlarm && renderLiveArrivals("mb-8")}
-
-      {(error || arrivalError || status) && (
-        <div
-          aria-live="polite"
-          className={`mb-6 border-l-2 px-3 py-2 text-sm ${
-            error || arrivalError
-              ? "border-red-600 bg-red-50 text-red-800"
-              : "border-signal bg-signal/8 text-ink"
-          }`}
-        >
-          {error ?? arrivalError ?? status}
-        </div>
+      {toastMessage && (
+        <Toast
+          isError={toastIsError}
+          key={toastMessage}
+          message={toastMessage}
+          onDismiss={() => {
+            setError(null);
+            setStatus(null);
+          }}
+        />
       )}
 
       <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-ink/15 pt-4 text-xs text-ink/45">

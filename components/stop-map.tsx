@@ -6,18 +6,22 @@ import type {
   Map as LeafletMap,
   Marker,
 } from "leaflet";
+import {
+  findStopsInBounds,
+  type CatalogStop,
+} from "@/lib/stop-catalog";
 import type { Coordinates, StopSummary } from "@/lib/types";
 
 interface StopMapProps {
+  catalogError: string | null;
+  catalogLoading: boolean;
   center: Coordinates | null;
+  focusCenter: Coordinates | null;
+  isLocating: boolean;
   selectedStop: StopSummary | null;
+  onRefreshLocation: () => void;
   onSelectStop: (stop: StopSummary) => void;
-}
-
-interface MapStopsPayload {
-  stops: StopSummary[];
-  total: number;
-  truncated: boolean;
+  stops: readonly CatalogStop[];
 }
 
 const ATHENS_CENTER: [number, number] = [37.9838, 23.7275];
@@ -28,7 +32,7 @@ export const OASA_MAP_BOUNDS: [[number, number], [number, number]] = [
 ];
 const USER_LOCATION_PIN_HTML = `
   <svg aria-hidden="true" width="28" height="36" viewBox="0 0 28 36">
-    <path d="M14 1.5C7.4 1.5 2 6.9 2 13.5 2 22.1 14 34 14 34s12-11.9 12-20.5C26 6.9 20.6 1.5 14 1.5Z" fill="#dc2626" stroke="#fff" stroke-width="2.5" stroke-linejoin="round" />
+    <path d="M14 1.5C7.4 1.5 2 6.9 2 13.5 2 22.1 14 34 14 34s12-11.9 12-20.5C26 6.9 20.6 1.5 14 1.5Z" fill="#e5562f" stroke="#fff" stroke-width="2.5" stroke-linejoin="round" />
     <circle cx="14" cy="13.5" r="4.5" fill="#fff" />
   </svg>
 `;
@@ -44,7 +48,7 @@ function LocationPinIcon() {
     >
       <path
         d="M14 1.5C7.4 1.5 2 6.9 2 13.5 2 22.1 14 34 14 34s12-11.9 12-20.5C26 6.9 20.6 1.5 14 1.5Z"
-        fill="#dc2626"
+        fill="#e5562f"
         stroke="#fff"
         strokeLinejoin="round"
         strokeWidth="2.5"
@@ -56,9 +60,15 @@ function LocationPinIcon() {
 
 /** Renders the Leaflet stop picker. */
 export function StopMap({
+  catalogError,
+  catalogLoading,
   center,
+  focusCenter,
+  isLocating,
   selectedStop,
+  onRefreshLocation,
   onSelectStop,
+  stops,
 }: StopMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<LeafletMap | null>(null);
@@ -66,23 +76,30 @@ export function StopMap({
   const userMarkerRef = useRef<Marker | null>(null);
   const leafletRef = useRef<typeof import("leaflet") | null>(null);
   const selectStopRef = useRef(onSelectStop);
+  const stopsRef = useRef(stops);
+  const updateVisibleStopsRef = useRef<(() => void) | null>(null);
   const [mapReady, setMapReady] = useState(false);
   const [visibleStops, setVisibleStops] = useState<StopSummary[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [truncated, setTruncated] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     selectStopRef.current = onSelectStop;
   }, [onSelectStop]);
 
   useEffect(() => {
+    stopsRef.current = stops;
+    const frame = requestAnimationFrame(() =>
+      updateVisibleStopsRef.current?.(),
+    );
+    return () => cancelAnimationFrame(frame);
+  }, [stops]);
+
+  useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
 
     let cancelled = false;
-    let controller: AbortController | null = null;
 
-    /** Loads stops within the visible map bounds. */
+    /** Creates the map and filters the in-memory catalogue on movement. */
     const initialize = async () => {
       const L = await import("leaflet");
       if (cancelled || !containerRef.current) return;
@@ -116,57 +133,33 @@ export function StopMap({
       mapRef.current = map;
       setMapReady(true);
 
-      const loadVisibleStops = async () => {
+      const updateVisibleStops = () => {
         const bounds = map.getBounds();
-        const params = new URLSearchParams({
-          north: String(bounds.getNorth()),
-          south: String(bounds.getSouth()),
-          east: String(bounds.getEast()),
-          west: String(bounds.getWest()),
+        const result = findStopsInBounds(stopsRef.current, {
+          north: bounds.getNorth(),
+          south: bounds.getSouth(),
+          east: bounds.getEast(),
+          west: bounds.getWest(),
         });
-
-        controller?.abort();
-        controller = new AbortController();
-        setIsLoading(true);
-
-        try {
-          const response = await fetch(`/api/stops/map?${params}`, {
-            signal: controller.signal,
-          });
-          if (!response.ok) {
-            throw new Error("Could not load stops for this map area.");
-          }
-
-          const payload = (await response.json()) as MapStopsPayload;
-          setVisibleStops(payload.stops);
-          setTruncated(payload.truncated);
-          setError(null);
-        } catch (loadError) {
-          if (
-            !(loadError instanceof DOMException) ||
-            loadError.name !== "AbortError"
-          ) {
-            setError("Could not load map stops.");
-          }
-        } finally {
-          if (!controller.signal.aborted) setIsLoading(false);
-        }
+        setVisibleStops(result.stops);
+        setTruncated(result.truncated);
       };
 
-      map.on("moveend", loadVisibleStops);
-      await loadVisibleStops();
+      updateVisibleStopsRef.current = updateVisibleStops;
+      map.on("moveend", updateVisibleStops);
+      updateVisibleStops();
     };
 
     void initialize();
 
     return () => {
       cancelled = true;
-      controller?.abort();
       userMarkerRef.current?.remove();
       mapRef.current?.remove();
       mapRef.current = null;
       markersRef.current = null;
       userMarkerRef.current = null;
+      updateVisibleStopsRef.current = null;
     };
     // The map instance is deliberately created only once.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -190,7 +183,7 @@ export function StopMap({
       });
 
       marker
-        .bindTooltip(`${stop.name} · #${stop.code}`, {
+        .bindTooltip(stop.name, {
           direction: "top",
           offset: [0, -4],
         })
@@ -206,9 +199,20 @@ export function StopMap({
     const map = mapRef.current;
     if (!L || !mapReady || !map) return;
 
-    userMarkerRef.current?.remove();
-    userMarkerRef.current = null;
-    if (!center) return;
+    if (!center) {
+      userMarkerRef.current?.remove();
+      userMarkerRef.current = null;
+      return;
+    }
+
+    const position: [number, number] = [
+      center.latitude,
+      center.longitude,
+    ];
+    if (userMarkerRef.current) {
+      userMarkerRef.current.setLatLng(position);
+      return;
+    }
 
     const icon = L.divIcon({
       className: "",
@@ -217,7 +221,7 @@ export function StopMap({
       iconSize: [28, 36],
       tooltipAnchor: [0, -34],
     });
-    const marker = L.marker([center.latitude, center.longitude], {
+    const marker = L.marker(position, {
       icon,
       keyboard: false,
       zIndexOffset: 1000,
@@ -226,8 +230,17 @@ export function StopMap({
       .bindTooltip("Your position", { direction: "top" })
       .addTo(map);
     userMarkerRef.current = marker;
-    map.setView([center.latitude, center.longitude], 16);
+    map.setView(position, 16);
   }, [center, mapReady]);
+
+  /** Recenters only after an explicit location refresh. */
+  useEffect(() => {
+    if (!focusCenter || !mapRef.current) return;
+    mapRef.current.panTo([
+      focusCenter.latitude,
+      focusCenter.longitude,
+    ]);
+  }, [focusCenter]);
 
   useEffect(() => {
     if (!selectedStop || !mapRef.current) return;
@@ -244,6 +257,33 @@ export function StopMap({
         className="h-80 w-full"
         ref={containerRef}
       />
+      <button
+        aria-label="Refresh and center on your location"
+        className="absolute right-2 bottom-8 z-[500] flex size-10 items-center justify-center border border-ink/20 bg-paper/95 text-signal shadow transition hover:bg-paper disabled:text-ink/35"
+        disabled={isLocating}
+        onClick={onRefreshLocation}
+        title={
+          isLocating
+            ? "Refreshing your location"
+            : "Refresh and center on your location"
+        }
+        type="button"
+      >
+        <svg
+          aria-hidden="true"
+          className={`size-5 ${isLocating ? "animate-pulse" : ""}`}
+          fill="none"
+          stroke="currentColor"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth="2"
+          viewBox="0 0 24 24"
+        >
+          <circle cx="12" cy="12" r="3" />
+          <path d="M12 2v3m0 14v3M2 12h3m14 0h3" />
+          <circle cx="12" cy="12" r="8" />
+        </svg>
+      </button>
       {center && (
         <div className="pointer-events-none absolute top-2 right-2 z-[500] flex items-center gap-1.5 bg-paper/95 px-2 py-1 text-xs shadow">
           <LocationPinIcon />
@@ -251,7 +291,7 @@ export function StopMap({
         </div>
       )}
       <div className="pointer-events-none absolute top-2 left-12 z-[500] flex gap-2">
-        {isLoading && (
+        {catalogLoading && (
           <span className="bg-paper/95 px-2 py-1 text-xs shadow">
             Loading stops...
           </span>
@@ -261,9 +301,9 @@ export function StopMap({
             Zoom in for every stop
           </span>
         )}
-        {error && (
+        {catalogError && (
           <span className="bg-red-50 px-2 py-1 text-xs text-red-800 shadow">
-            {error}
+            {catalogError}
           </span>
         )}
       </div>
