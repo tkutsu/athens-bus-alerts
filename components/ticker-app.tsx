@@ -19,6 +19,7 @@ import {
   readStoredState,
   writeStoredState,
 } from "@/lib/storage";
+import { formatTransitName } from "@/lib/display";
 import {
   OPTIONAL_THRESHOLDS,
   type ActiveAlarm,
@@ -26,6 +27,7 @@ import {
   type Arrival,
   type Coordinates,
   type Favorite,
+  type LineAlertConfig,
   type OptionalThreshold,
   type ServingLine,
   type ServingRoute,
@@ -47,14 +49,10 @@ interface StopDetailsPayload {
   lines: ServingLine[];
 }
 
-type StepName = "stop" | "buses" | "notify";
-const TOAST_DISMISS_MS = 10_000;
+type ActiveView = "stop" | "buses";
+const TOAST_DISMISS_MS = 5_000;
 const LOCATION_REFRESH_MS = 20_000;
-const COLLAPSED_STEPS: Record<StepName, boolean> = {
-  stop: false,
-  buses: false,
-  notify: false,
-};
+const DEFAULT_ALERT_THRESHOLDS: OptionalThreshold[] = [3, 1];
 
 function Icon({
   name,
@@ -64,7 +62,8 @@ function Icon({
     | "bell"
     | "bus"
     | "pencil"
-    | "star";
+    | "star"
+    | "stop";
   className?: string;
 }) {
   const paths = {
@@ -88,6 +87,12 @@ function Icon({
       </>
     ),
     star: <path d="m12 2 3.1 6.3 6.9 1-5 4.9 1.2 6.8-6.2-3.2L5.8 21 7 14.2l-5-4.9 6.9-1z" />,
+    stop: (
+      <>
+        <rect x="5" y="3" width="12" height="11" rx="1.5" />
+        <path d="M8 7h6M8 10h6M11 14v7M8 21h6" />
+      </>
+    ),
   };
 
   return (
@@ -137,10 +142,10 @@ function Toast({
   return (
     <div
       aria-live={isError ? "assertive" : "polite"}
-      className={`fixed top-4 left-1/2 z-[1000] flex w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 items-start gap-3 px-4 py-3 text-sm shadow-lg ${
+      className={`fixed bottom-20 left-1/2 z-[1000] flex w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 items-start gap-3 overflow-hidden px-4 py-3 text-sm shadow-lg ${
         isError
-          ? "border border-red-700/25 bg-red-50 text-red-900"
-          : "border border-ink/15 bg-ink text-paper"
+          ? "border border-red-700/20 bg-[#f3e3dc] text-red-900"
+          : "border border-ink/15 bg-[#e5e1d7] text-ink"
       }`}
       role={isError ? "alert" : "status"}
     >
@@ -158,51 +163,13 @@ function Toast({
           ×
         </span>
       </button>
+      <span
+        aria-hidden="true"
+        className={`toast-countdown absolute bottom-0 left-0 h-0.5 ${
+          isError ? "bg-red-700/55" : "bg-signal/65"
+        }`}
+      />
     </div>
-  );
-}
-
-/** Renders a collapsible workflow heading. */
-function StepTitle({
-  controls,
-  expanded,
-  id,
-  label,
-  onToggle,
-  selection,
-}: {
-  controls: string;
-  expanded: boolean;
-  id: string;
-  label: string;
-  onToggle: () => void;
-  selection?: string;
-}) {
-  return (
-    <h2 className="min-w-0 flex-1" id={id}>
-      <button
-        aria-controls={controls}
-        aria-expanded={expanded}
-        className="section-label flex max-w-full items-center gap-2 text-left"
-        onClick={onToggle}
-        type="button"
-      >
-        <span className="shrink-0">{label}</span>
-        {selection && (
-          <span className="flex min-w-0 items-center gap-2">
-            <span aria-hidden="true" className="shrink-0 text-ink/60">
-              ·
-            </span>
-            <span className="truncate font-mono font-semibold tracking-normal text-ink normal-case">
-              {selection}
-            </span>
-          </span>
-        )}
-        <span aria-hidden="true" className="shrink-0 text-base leading-none">
-          {expanded ? "▾" : "▸"}
-        </span>
-      </button>
-    </h2>
   );
 }
 
@@ -229,7 +196,7 @@ function sortFavorites(favorites: readonly Favorite[]): Favorite[] {
 }
 
 function formatThresholds(thresholds: readonly OptionalThreshold[]) {
-  return [...thresholds, 0].join("/");
+  return thresholds.join("/");
 }
 
 /** Formats short user-facing lists with a natural final conjunction. */
@@ -262,15 +229,11 @@ export function TickerApp() {
   const [selectedStop, setSelectedStop] = useState<StopSummary | null>(null);
   const [routes, setRoutes] = useState<ServingRoute[]>([]);
   const [lines, setLines] = useState<ServingLine[]>([]);
-  const [selectedLineIds, setSelectedLineIds] = useState<string[]>([]);
-  const [thresholds, setThresholds] = useState<OptionalThreshold[]>([
-    ...OPTIONAL_THRESHOLDS,
-  ]);
+  const [lineAlerts, setLineAlerts] = useState<LineAlertConfig[]>([]);
   const [favorites, setFavorites] = useState<Favorite[]>([]);
   const [activeAlarm, setActiveAlarmState] = useState<ActiveAlarm | null>(null);
   const activeAlarmRef = useRef<ActiveAlarm | null>(null);
   const hydrationStartedRef = useRef(false);
-  const favoriteNameInputRef = useRef<HTMLInputElement | null>(null);
   const coordinatesRef = useRef<Coordinates | null>(null);
   const locationDeniedRef = useRef(false);
   const [status, setStatus] = useState<string | null>(null);
@@ -279,25 +242,35 @@ export function TickerApp() {
   const [isLoadingStop, setIsLoadingStop] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [favoriteName, setFavoriteName] = useState("");
-  const [expandedSteps, setExpandedSteps] = useState<
-    Record<StepName, boolean>
-  >({
-    stop: true,
-    buses: true,
-    notify: true,
-  });
+  const [activeView, setActiveView] = useState<ActiveView>("stop");
+  const [favoritesOpen, setFavoritesOpen] = useState(false);
+  const favoritesDialogRef = useRef<HTMLDialogElement | null>(null);
+  const selectedLineIds = useMemo(
+    () => lineAlerts.map((lineAlert) => lineAlert.lineId),
+    [lineAlerts],
+  );
+  const selectedRouteCodes = useMemo(
+    () =>
+      routes
+        .filter((route) =>
+          activeAlarm?.lineAlerts.some(
+            (lineAlert) => lineAlert.lineId === route.lineId,
+          ),
+        )
+        .map((route) => route.routeCode),
+    [activeAlarm?.lineAlerts, routes],
+  );
 
   const {
     data: arrivalData,
     error: arrivalError,
-    isLoading: arrivalsLoading,
-    stale,
   } = useArrivalPolling(
     activeAlarm &&
       !activeAlarm.completedAt &&
       activeAlarm.stopCode === selectedStop?.code
       ? activeAlarm.stopCode
       : null,
+    selectedRouteCodes,
   );
   const {
     stops: catalogStops,
@@ -338,8 +311,11 @@ export function TickerApp() {
     async (
       requestedStop: Pick<StopSummary, "code" | "name"> &
         Partial<StopSummary>,
-      requestedLines: string[] = [],
-    ): Promise<{ stop: StopSummary; validLines: string[] } | null> => {
+      requestedLineAlerts: LineAlertConfig[] = [],
+    ): Promise<{
+      stop: StopSummary;
+      validLineAlerts: LineAlertConfig[];
+    } | null> => {
       setIsLoadingStop(true);
       setError(null);
 
@@ -366,15 +342,15 @@ export function TickerApp() {
             : (requestedStop.distanceMeters ?? 0);
         const stop = { ...payload.stop, distanceMeters };
         const validLineIds = new Set(payload.lines.map((line) => line.lineId));
-        const validLines = requestedLines.filter((lineId) =>
-          validLineIds.has(lineId),
+        const validLineAlerts = requestedLineAlerts.filter((lineAlert) =>
+          validLineIds.has(lineAlert.lineId),
         );
 
         setSelectedStop(stop);
         setRoutes(payload.routes);
         setLines(payload.lines);
-        setSelectedLineIds(validLines);
-        return { stop, validLines };
+        setLineAlerts(validLineAlerts);
+        return { stop, validLineAlerts };
       } catch (loadError) {
         setError(
           loadError instanceof Error
@@ -396,15 +372,22 @@ export function TickerApp() {
 
     const stored = readStoredState();
     // Browser storage is not available during server rendering.
-    setThresholds(stored.optionalThresholds);
+    setLineAlerts(stored.lineAlerts);
     setFavorites(stored.favorites);
     updateAlarm(stored.activeAlarm);
-    if (stored.activeAlarm) {
-      setExpandedSteps(COLLAPSED_STEPS);
-    }
+    setActiveView(
+      stored.activeAlarm || stored.lineAlerts.length > 0
+        ? "buses"
+        : stored.selectedStop
+          ? "buses"
+          : "stop",
+    );
 
     if (stored.selectedStop) {
-      void loadStop(stored.selectedStop, stored.selectedLineIds).finally(() => {
+      void loadStop(
+        stored.selectedStop,
+        stored.lineAlerts,
+      ).finally(() => {
         setHydrated(true);
       });
     } else {
@@ -421,10 +404,9 @@ export function TickerApp() {
     if (!hydrated) return;
 
     writeStoredState({
-      version: 2,
+      version: 3,
       selectedStop: selectedStop ? stopReference(selectedStop) : null,
-      selectedLineIds,
-      optionalThresholds: thresholds,
+      lineAlerts,
       favorites,
       activeAlarm,
     });
@@ -432,10 +414,16 @@ export function TickerApp() {
     activeAlarm,
     favorites,
     hydrated,
-    selectedLineIds,
+    lineAlerts,
     selectedStop,
-    thresholds,
   ]);
+
+  useEffect(() => {
+    const dialog = favoritesDialogRef.current;
+    if (!dialog) return;
+    if (favoritesOpen && !dialog.open) dialog.showModal();
+    if (!favoritesOpen && dialog.open) dialog.close();
+  }, [favoritesOpen]);
 
   useEffect(() => {
     const closeFavoriteMenus = (event: PointerEvent) => {
@@ -456,10 +444,6 @@ export function TickerApp() {
       document.removeEventListener("pointerdown", closeFavoriteMenus);
   }, []);
 
-  const routeByCode = useMemo(
-    () => new Map(routes.map((route) => [route.routeCode, route])),
-    [routes],
-  );
   const uniqueArrivals = useMemo(
     () => dedupeArrivals(arrivalData?.arrivals ?? []),
     [arrivalData?.arrivals],
@@ -471,16 +455,21 @@ export function TickerApp() {
 
   const showAlert = useCallback(
     async (event: AlertEvent, alarm: ActiveAlarm) => {
-      const line = event.lineId ?? alarm.lastObservedLineId ?? "Bus";
+      const line = formatTransitName(event.lineId);
       const title =
         event.kind === "zero"
           ? `${line} is due now`
           : `${line} is ${event.minutes} min away`;
-      const body = `${alarm.stopName} · ${
+      const body = `${formatTransitName(alarm.stopName)} · ${
         event.kind === "warning"
           ? `${event.threshold}-minute alert`
           : "arrival alert"
       }`;
+      const alertBehavior = {
+        tag: `alarm-${alarm.id}-${line}`,
+        renotify: true,
+        vibrate: [300, 100, 300],
+      };
 
       try {
         if ("serviceWorker" in navigator) {
@@ -489,14 +478,17 @@ export function TickerApp() {
             body,
             icon: "/icon-192.png",
             badge: "/icon-192.png",
-            tag: `alarm-${alarm.id}`,
+            ...alertBehavior,
           });
         } else {
-          new Notification(title, { body, tag: `alarm-${alarm.id}` });
+          new Notification(title, {
+            body,
+            ...alertBehavior,
+          });
         }
         setStatus(
           event.kind === "zero"
-            ? `${line} is due now. Notifications for this trip are complete.`
+            ? `${line} is due now. Notifications for this bus are complete.`
             : `Notification sent: ${line} is ${event.minutes} min away.`,
         );
       } catch {
@@ -516,8 +508,8 @@ export function TickerApp() {
       const evaluation = evaluateAlarm(alarm, currentCandidates, now);
       updateAlarm(evaluation.alarm);
 
-      if (evaluation.event) {
-        await showAlert(evaluation.event, alarm);
+      for (const event of evaluation.events) {
+        await showAlert(event, alarm);
       }
     },
     [showAlert, updateAlarm],
@@ -544,11 +536,16 @@ export function TickerApp() {
   ]);
 
   useEffect(() => {
-    if (!activeAlarm?.predictedZeroAt) return;
+    const predictedZeroAt = activeAlarm?.lineAlerts
+      .filter((lineAlert) => !lineAlert.completedAt)
+      .map((lineAlert) => lineAlert.predictedZeroAt)
+      .filter((value): value is string => Boolean(value))
+      .sort()[0];
+    if (!predictedZeroAt) return;
 
     const delay = Math.max(
       0,
-      new Date(activeAlarm.predictedZeroAt).getTime() - Date.now(),
+      new Date(predictedZeroAt).getTime() - Date.now(),
     );
     const timeout = window.setTimeout(() => {
       const alarm = activeAlarmRef.current;
@@ -558,7 +555,7 @@ export function TickerApp() {
     }, Math.min(delay, 2_147_000_000));
 
     return () => window.clearTimeout(timeout);
-  }, [activeAlarm?.predictedZeroAt, processAlarm]);
+  }, [activeAlarm?.lineAlerts, processAlarm]);
 
   async function ensureNotificationPermission(): Promise<boolean> {
     if (!("Notification" in window)) {
@@ -580,65 +577,66 @@ export function TickerApp() {
     return true;
   }
 
-  /** Arms one alert for the earliest selected bus. */
+  /** Arms an independent alert schedule for every selected bus. */
   async function armWith(
     stop: StopSummary,
-    lineIds: string[],
-    alarmThresholds: OptionalThreshold[],
+    alarmLineAlerts: LineAlertConfig[],
   ) {
     if (!(await ensureNotificationPermission())) return;
 
+    const lineIds = alarmLineAlerts.map((lineAlert) => lineAlert.lineId);
     const alarm: ActiveAlarm = {
       id: crypto.randomUUID(),
       stopCode: stop.code,
       stopName: stop.name,
-      selectedLineIds: lineIds,
-      optionalThresholds: alarmThresholds,
-      firedThresholds: [],
-      predictedZeroAt: null,
-      lastObservedLineId: null,
-      lastObservedMinutes: null,
+      lineAlerts: alarmLineAlerts.map((lineAlert) => ({
+        ...lineAlert,
+        optionalThresholds: [...lineAlert.optionalThresholds],
+        firedThresholds: [],
+        predictedZeroAt: null,
+        lastObservedMinutes: null,
+        completedAt: null,
+      })),
       armedAt: new Date().toISOString(),
       completedAt: null,
     };
 
     updateAlarm(alarm);
-    setExpandedSteps(COLLAPSED_STEPS);
+    setActiveView("buses");
     setStatus(
-      `Notifications are on for ${formatList(lineIds)}. We'll notify you at ${formatList(
-        [...alarmThresholds, 0].map(String),
-      )} minutes.`,
+      `Notifications are on for ${formatList(
+        lineIds.map(formatTransitName),
+      )}.`,
     );
   }
 
   /** Re-arms a completed alert with its previous stop, buses, and times. */
   async function restartAlarm(alarm: ActiveAlarm) {
     const currentLineIds = new Set(lines.map((line) => line.lineId));
+    const savedLineAlerts = alarm.lineAlerts.map((lineAlert) => ({
+      lineId: lineAlert.lineId,
+      optionalThresholds: lineAlert.optionalThresholds,
+    }));
     const loaded =
       selectedStop?.code === alarm.stopCode
         ? {
             stop: selectedStop,
-            validLines: alarm.selectedLineIds.filter((lineId) =>
-              currentLineIds.has(lineId),
+            validLineAlerts: savedLineAlerts.filter((lineAlert) =>
+              currentLineIds.has(lineAlert.lineId),
             ),
           }
         : await loadStop(
             { code: alarm.stopCode, name: alarm.stopName },
-            alarm.selectedLineIds,
+            savedLineAlerts,
           );
 
-    if (!loaded || loaded.validLines.length === 0) {
+    if (!loaded || loaded.validLineAlerts.length === 0) {
       setError("The saved buses no longer serve this stop.");
       return;
     }
 
-    setThresholds(alarm.optionalThresholds);
-    setSelectedLineIds(loaded.validLines);
-    await armWith(
-      loaded.stop,
-      loaded.validLines,
-      alarm.optionalThresholds,
-    );
+    setLineAlerts(loaded.validLineAlerts);
+    await armWith(loaded.stop, loaded.validLineAlerts);
   }
 
   /** Reads the device location used for client-side stop ordering. */
@@ -649,11 +647,13 @@ export function TickerApp() {
       const showProgress = force || coordinatesRef.current === null;
       if (showProgress) {
         setIsLocating(true);
-        setError(null);
       }
+      if (force) setError(null);
 
       if (!navigator.geolocation) {
-        setError("Location is not supported. Choose a stop on the map.");
+        if (force) {
+          setError("Location is not supported. Choose a stop on the map.");
+        }
         setIsLocating(false);
         return;
       }
@@ -674,6 +674,9 @@ export function TickerApp() {
         (locationError) => {
           if (locationError.code === 1) locationDeniedRef.current = true;
           if (showProgress) {
+            setIsLocating(false);
+          }
+          if (force) {
             const messages: Record<number, string> = {
               1: "Location was denied. Choose a stop on the map.",
               2: "Your location is unavailable. Try again or use the map.",
@@ -682,7 +685,6 @@ export function TickerApp() {
             setError(
               messages[locationError.code] ?? "Could not get your location.",
             );
-            setIsLocating(false);
           }
         },
         {
@@ -720,27 +722,45 @@ export function TickerApp() {
   }
 
   function toggleLine(lineId: string) {
-    setSelectedLineIds((current) =>
-      current.includes(lineId)
-        ? current.filter((candidate) => candidate !== lineId)
-        : [...current, lineId],
+    setLineAlerts((current) =>
+      current.some((lineAlert) => lineAlert.lineId === lineId)
+        ? current.filter((lineAlert) => lineAlert.lineId !== lineId)
+        : [
+            ...current,
+            {
+              lineId,
+              optionalThresholds: [...DEFAULT_ALERT_THRESHOLDS],
+            },
+          ],
     );
   }
 
-  function toggleThreshold(threshold: OptionalThreshold) {
-    setThresholds((current) =>
-      current.includes(threshold)
-        ? current.filter((candidate) => candidate !== threshold)
-        : [...current, threshold].sort((a, b) => b - a),
+  function toggleThreshold(
+    lineId: string,
+    threshold: OptionalThreshold,
+  ) {
+    setLineAlerts((current) =>
+      current.map((lineAlert) =>
+        lineAlert.lineId !== lineId
+          ? lineAlert
+          : {
+              ...lineAlert,
+              optionalThresholds: lineAlert.optionalThresholds.includes(
+                threshold,
+              )
+                ? lineAlert.optionalThresholds.filter(
+                    (candidate) => candidate !== threshold,
+                  )
+                : [...lineAlert.optionalThresholds, threshold].sort(
+                    (a, b) => b - a,
+                  ),
+            },
+      ),
     );
   }
 
-  /** Collapses visual workflow sections without changing their selections. */
-  function toggleStep(step: StepName) {
-    setExpandedSteps((current) => ({
-      ...current,
-      [step]: !current[step],
-    }));
+  function openFavorites() {
+    setFavoritesOpen(true);
   }
 
   /** Saves the current selection as a favorite. */
@@ -767,8 +787,7 @@ export function TickerApp() {
       id: existing?.id ?? crypto.randomUUID(),
       name,
       stop: stopReference(selectedStop),
-      lineIds: selectedLineIds,
-      optionalThresholds: thresholds,
+      lineAlerts,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
       lastEnabledAt: existing?.lastEnabledAt ?? null,
@@ -778,6 +797,7 @@ export function TickerApp() {
       favorite,
     ]);
     setFavoriteName("");
+    setFavoritesOpen(false);
     setStatus(`Saved "${name}".`);
   }
 
@@ -790,18 +810,17 @@ export function TickerApp() {
       return;
     }
 
-    setThresholds(favorite.optionalThresholds);
-    const loaded = await loadStop(favorite.stop, favorite.lineIds);
+    const loaded = await loadStop(favorite.stop, favorite.lineAlerts);
     if (!loaded) return;
 
-    if (loaded.validLines.length === 0) {
+    if (loaded.validLineAlerts.length === 0) {
       setError(
         `None of the saved lines for "${favorite.name}" currently serve this stop.`,
       );
       return;
     }
 
-    if (loaded.validLines.length !== favorite.lineIds.length) {
+    if (loaded.validLineAlerts.length !== favorite.lineAlerts.length) {
       setStatus(
         "Some saved buses no longer serve this stop, so we removed them.",
       );
@@ -815,11 +834,9 @@ export function TickerApp() {
           : item,
       ),
     );
-    await armWith(
-      loaded.stop,
-      loaded.validLines,
-      favorite.optionalThresholds,
-    );
+    setFavoritesOpen(false);
+    setActiveView("buses");
+    await armWith(loaded.stop, loaded.validLineAlerts);
   }
 
   function renameFavorite(favorite: Favorite) {
@@ -859,8 +876,7 @@ export function TickerApp() {
           ? {
               ...item,
               stop: stopReference(selectedStop),
-              lineIds: selectedLineIds,
-              optionalThresholds: thresholds,
+              lineAlerts,
               updatedAt: new Date().toISOString(),
             }
           : item,
@@ -888,487 +904,557 @@ export function TickerApp() {
     setSelectedStop(null);
     setRoutes([]);
     setLines([]);
-    setSelectedLineIds([]);
-    setThresholds([...OPTIONAL_THRESHOLDS]);
+    setLineAlerts([]);
     setFavorites([]);
     updateAlarm(null);
+    setActiveView("stop");
+    setFavoritesOpen(false);
     setStatus("Your saved data was cleared.");
   }
 
-  const displayArrivals = uniqueArrivals.map((arrival) => ({
-    ...arrival,
-    route: routeByCode.get(arrival.routeCode),
-  }));
   const canSaveFavorite =
     selectedStop !== null && selectedLineIds.length > 0;
+  const shouldAnimateBell =
+    selectedStop !== null &&
+    lineAlerts.length > 0 &&
+    lineAlerts.some(
+      (lineAlert) => lineAlert.optionalThresholds.length > 0,
+    );
   const toastMessage = error ?? catalogError ?? arrivalError ?? status;
   const toastIsError = Boolean(error || catalogError || arrivalError);
 
-  /** Renders the automatically refreshed arrivals inside the alert card. */
-  function renderLiveArrivals(
-    className: string,
-    edgeToEdge = false,
-  ) {
-    return (
-      <div className={className}>
-        {arrivalsLoading && !arrivalData ? (
-          <div
-            className={
-              edgeToEdge
-                ? "ticker-skeleton ticker-skeleton-active"
-                : "ticker-skeleton"
-            }
-          />
-        ) : displayArrivals.length === 0 ? (
-          <p
-            className={
-              edgeToEdge
-                ? "border-y border-dashed border-signal/25 py-5 text-sm text-ink/45"
-                : "empty-copy"
-            }
-          >
-            No live arrivals right now.
-          </p>
-        ) : (
-          <div
-            className={`border-y ${
-              edgeToEdge
-                ? "-mx-3 border-signal/25"
-                : "border-ink/20"
-            }`}
-          >
-            {displayArrivals.map((arrival) => {
-              const selected =
-                arrival.route &&
-                selectedLineIds.includes(arrival.route.lineId);
-              return (
-                <div
-                  className={`grid grid-cols-[4.5rem_1fr_auto] items-center gap-3 border-b py-3 last:border-0 ${
-                    selected ? "bg-signal/6" : ""
-                  } ${
-                    edgeToEdge
-                      ? "border-signal/15 px-3"
-                      : "border-ink/10"
-                  }`}
-                  key={`${arrival.routeCode}-${arrival.vehicleId}`}
-                >
-                  <span
-                    className={
-                      selected ? "arrival-line-selected" : "arrival-line"
-                    }
-                  >
-                    {arrival.route?.lineId ?? "-"}
-                  </span>
-                  <span className="min-w-0 truncate text-sm text-ink/65">
-                    {arrival.route?.description ??
-                      `Route ${arrival.routeCode}`}
-                  </span>
-                  <span className="font-mono text-lg font-bold tabular-nums text-ink">
-                    {arrival.minutes === 0
-                      ? "DUE"
-                      : `${arrival.minutes} min`}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        {arrivalData && (
-          <p
-            className={`mt-2 text-right text-xs ${
-              stale ? "text-red-700" : "text-ink/45"
-            }`}
-          >
-            {stale ? "Data may be stale · " : ""}
-            Updated{" "}
-            {new Intl.DateTimeFormat("en", {
-              hour: "2-digit",
-              minute: "2-digit",
-              second: "2-digit",
-            }).format(new Date(arrivalData.observedAt))}
-          </p>
-        )}
-      </div>
-    );
-  }
-
   return (
-    <main className="mx-auto min-h-screen w-full max-w-2xl px-4 py-6 sm:px-6 sm:py-10">
-      <header
-        className={`mb-8 flex items-start justify-between pb-5 ${
-          activeAlarm ? "" : "border-b border-ink/15"
-        }`}
-      >
-        <div>
-          <h1 className="flex items-center gap-2 text-xs font-bold tracking-[0.22em] text-signal uppercase">
-            <Icon name="bus" className="size-5" />
-            Athens Bus Notifications
-          </h1>
-          <p className="mt-2 text-sm text-ink/55">
-            Pick stop · Pick bus · Get notified
-          </p>
-        </div>
-        {activeAlarm && (
-          <span className="pulse-dot mt-2 size-3 rounded-full bg-signal" title="Alert active" />
-        )}
+    <main className="mx-auto min-h-screen w-full max-w-2xl px-4 pt-6 pb-10 sm:px-6 sm:pt-10">
+      <header className="mb-5 flex items-start justify-between">
+        <h1 className="flex items-center gap-2 text-xs font-bold tracking-[0.22em] text-signal uppercase">
+          <Icon name="bus" className="size-5" />
+          Athens Bus Notifications
+        </h1>
+        <button
+          className="inline-flex items-center gap-1.5 text-xs font-semibold text-ink/55 transition hover:text-signal"
+          onClick={openFavorites}
+          type="button"
+        >
+          Favorites
+          <Icon name="star" className="size-4 shrink-0 -translate-y-px" />
+        </button>
       </header>
 
-      {activeAlarm && (
-        <section
-          aria-label={activeAlarm.completedAt ? "Alert complete" : undefined}
-          aria-labelledby={
-            activeAlarm.completedAt ? undefined : "active-alert-heading"
-          }
-          className="mb-8 border border-signal/30 bg-signal/8 px-3 py-3"
-        >
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0 text-sm">
-              <h2
-                className="section-label mb-1 text-signal"
-                id="active-alert-heading"
-              >
-                {activeAlarm.completedAt
-                  ? `${activeAlarm.lastObservedLineId ?? "Bus"} arrived`
-                  : "Active alert"}
-              </h2>
-              <p>
-                <strong>{activeAlarm.stopName}</strong> ·{" "}
-                {activeAlarm.selectedLineIds.join(", ")} ·{" "}
-                {formatThresholds(activeAlarm.optionalThresholds)} min
-              </p>
-            </div>
-            <div className="flex shrink-0 items-center gap-2">
-              {activeAlarm.completedAt && (
-                <button
-                  className="small-action"
-                  onClick={() => void restartAlarm(activeAlarm)}
-                  type="button"
-                >
-                  Restart
-                </button>
-              )}
-              <button
-                aria-label="Cancel alert"
-                className="alert-dismiss flex size-14 shrink-0 items-center justify-center border-0 bg-transparent text-signal hover:text-signal"
-                onClick={() => {
-                  updateAlarm(null);
-                  setStatus("Notifications are off.");
-                }}
-                title="Cancel alert"
-                type="button"
-              >
-                <svg
-                  aria-hidden="true"
-                  className="size-4"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeLinecap="round"
-                  strokeWidth="2.25"
-                  suppressHydrationWarning
-                  viewBox="0 0 24 24"
-                >
-                  <path d="M3 3 21 21M21 3 3 21" />
-                </svg>
-              </button>
-            </div>
-          </div>
-          {selectedStop?.code === activeAlarm.stopCode &&
-            !activeAlarm.completedAt &&
-            renderLiveArrivals(
-              "mt-4 pt-4",
-              true,
-            )}
-        </section>
-      )}
-
-      {(favorites.length > 0 || canSaveFavorite) && (
-        <section aria-labelledby="favorites-heading" className="mb-8">
-          <div className="mb-3 flex items-center gap-2">
-            <Icon name="star" className="size-4 text-signal" />
-            <h2 id="favorites-heading" className="section-label">
-              Favorites
-            </h2>
-          </div>
-          <div className="divide-y divide-ink/10 border-y border-ink/15">
-            {sortFavorites(favorites).map((favorite) => (
-              <div
-                className="flex items-center gap-3 py-3"
-                key={favorite.id}
-              >
-                <button
-                  className="min-w-0 flex-1 text-left"
-                  onClick={() => void enableFavorite(favorite)}
-                  type="button"
-                >
-                  <span className="block truncate font-semibold text-ink">
-                    {favorite.name}
-                  </span>
-                  <span className="block truncate text-xs text-ink/55">
-                    {favorite.stop.name} · {favorite.lineIds.join(", ")} ·{" "}
-                    {formatThresholds(favorite.optionalThresholds)}
-                  </span>
-                </button>
-                <button
-                  className="small-action"
-                  onClick={() => void enableFavorite(favorite)}
-                  type="button"
-                >
-                  Enable
-                </button>
-                <details className="relative" data-favorite-menu>
-                  <summary className="small-action cursor-pointer list-none">
-                    •••
-                  </summary>
-                  <div className="absolute right-0 z-20 mt-1 w-32 border border-ink/15 bg-paper p-1 shadow-lg">
-                    <button
-                      className="menu-action"
-                      onClick={(event) => {
-                        renameFavorite(favorite);
-                        closeFavoriteMenu(event.currentTarget);
-                      }}
-                    >
-                      Rename
-                    </button>
-                    <button
-                      className="menu-action"
-                      onClick={(event) => {
-                        updateFavorite(favorite);
-                        closeFavoriteMenu(event.currentTarget);
-                      }}
-                    >
-                      Update
-                    </button>
-                    <button
-                      className="menu-action text-red-700"
-                      onClick={(event) => {
-                        deleteFavorite(favorite);
-                        closeFavoriteMenu(event.currentTarget);
-                      }}
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </details>
-              </div>
-            ))}
-            {canSaveFavorite && (
-              <form
-                className="flex items-center gap-3 py-3"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  if (favoriteName.trim()) saveFavorite();
-                }}
-              >
-                <label className="grid min-w-0 flex-1">
-                  <input
-                    aria-label="New favorite"
-                    className="favorite-name-input min-w-0 cursor-text border-0 bg-transparent p-0 font-semibold text-ink outline-none placeholder:text-ink/45"
-                    maxLength={40}
-                    onChange={(event) =>
-                      setFavoriteName(event.target.value)
-                    }
-                    placeholder="New favorite"
-                    ref={favoriteNameInputRef}
-                    value={favoriteName}
-                  />
-                  <span className="truncate text-xs text-ink/55">
-                    Draft · {selectedStop?.name} ·{" "}
-                    {selectedLineIds.join(", ")} ·{" "}
-                    {formatThresholds(thresholds)}
-                  </span>
-                </label>
-                {favoriteName.trim() && (
-                  <button
-                    aria-label="Save favorite"
-                    className="small-action shrink-0"
-                    type="submit"
-                  >
-                    Save
-                  </button>
-                )}
-                <button
-                  aria-label="Edit new favorite"
-                  className="small-action flex size-8 shrink-0 items-center justify-center"
-                  onClick={() => favoriteNameInputRef.current?.focus()}
-                  type="button"
-                >
-                  <Icon name="pencil" className="size-4 text-signal" />
-                </button>
-              </form>
-            )}
-          </div>
-        </section>
-      )}
-
-      <section aria-labelledby="stop-heading" className="mb-8">
-        <div className="mb-3 flex items-center justify-between">
-          <StepTitle
-            controls="stop-step-content"
-            expanded={expandedSteps.stop}
-            id="stop-heading"
-            label="01 · Bus stop"
-            onToggle={() => toggleStep("stop")}
-            selection={selectedStop?.name}
-          />
-        </div>
-
-        {expandedSteps.stop && (
-        <div id="stop-step-content">
-        <StopMap
-          catalogError={catalogError}
-          catalogLoading={catalogLoading}
-          center={coordinates}
-          focusCenter={mapFocus}
-          isLocating={isLocating}
-          onRefreshLocation={() => locate(true)}
-          onSelectStop={chooseStop}
-          selectedStop={selectedStop}
-          stops={catalogStops}
-        />
-
-        {coordinates && (
-          <StopCombobox
-            isLoading={
-              catalogLoading ||
-              isSearching ||
-              (isLocating && nearbyStops.length === 0)
-            }
-            onQueryChange={updateStopQuery}
-            onSelect={chooseStop}
-            options={
-              searchQuery.trim().length >= 2
-                ? searchResults
-                : nearbyStops
-            }
-            query={searchQuery}
-            resultTotal={searchTotal}
-          />
-        )}
-
-        </div>
-        )}
-      </section>
-
-      {selectedStop && (
-      <section aria-labelledby="buses-heading" className="mb-8">
-        <div className="mb-3 flex items-center justify-between">
-          <StepTitle
-            controls="buses-step-content"
-            expanded={expandedSteps.buses}
-            id="buses-heading"
-            label="02 · Buses"
-            onToggle={() => toggleStep("buses")}
-            selection={
+      <nav
+        aria-label="Notification setup"
+        className="workflow-tabs"
+      >
+        <div className="contents" role="tablist">
+          <button
+            aria-controls="stop-tab-panel"
+            aria-selected={activeView === "stop"}
+            className="workflow-tab min-w-0 flex-1"
+            id="stop-tab"
+            onClick={() => setActiveView("stop")}
+            role="tab"
+            type="button"
+          >
+            <span className="truncate">
+              {selectedStop
+                ? `${formatTransitName(selectedStop.name)}`
+                : "Pick Stop"}
+            </span>
+            <Icon name="stop" className="size-4 shrink-0" />
+          </button>
+          <button
+            aria-controls="buses-tab-panel"
+            aria-selected={activeView === "buses"}
+            className="workflow-tab min-w-0 flex-1"
+            disabled={!selectedStop}
+            id="buses-tab"
+            onClick={() => setActiveView("buses")}
+            role="tab"
+            title={
               selectedLineIds.length > 0
-                ? selectedLineIds.join(", ")
+                ? selectedLineIds.map(formatTransitName).join(", ")
                 : undefined
             }
-          />
-          {expandedSteps.buses && lines.length > 4 && (
-            <div className="flex gap-2">
-              <button
-                className="small-action underline"
-                onClick={() => setSelectedLineIds(lines.map((line) => line.lineId))}
-                type="button"
-              >
-                Select all
-              </button>
-              <button
-                className="small-action underline"
-                onClick={() => setSelectedLineIds([])}
-                type="button"
-              >
-                Clear
-              </button>
-            </div>
+            type="button"
+          >
+            <span className="truncate">
+              {selectedLineIds.length > 0
+                ? `${selectedLineIds
+                    .map(formatTransitName)
+                    .join(" ")}`
+                : "Pick Bus"}
+            </span>
+            <Icon name="bus" className="size-4 shrink-0" />
+          </button>
+        </div>
+        <button
+          className={`workflow-tab workflow-notify flex-1 ${
+            activeAlarm ? "workflow-notify-active" : ""
+          }`}
+          disabled={
+            !activeAlarm && (!selectedStop || lineAlerts.length === 0)
+          }
+          onClick={() => {
+            if (activeAlarm) {
+              updateAlarm(null);
+              setStatus("Notifications are off.");
+            } else if (selectedStop) {
+              void armWith(selectedStop, lineAlerts);
+            }
+          }}
+          type="button"
+        >
+          <span>{activeAlarm ? "Cancel" : "Notify"}</span>
+          {activeAlarm ? (
+            <span aria-hidden="true" className="text-lg leading-none">
+              ×
+            </span>
+          ) : (
+            <Icon
+              name="bell"
+              className={`size-4 shrink-0 ${
+                shouldAnimateBell ? "notify-bell-ready" : ""
+              }`}
+            />
           )}
-        </div>
-        {expandedSteps.buses && (
-        <div id="buses-step-content">
-        {isLoadingStop ? (
-          <p className="empty-copy">Loading lines...</p>
-        ) : lines.length === 0 ? (
-          <p className="empty-copy">No active lines were returned for this stop.</p>
-        ) : (
-          <div className="flex flex-wrap gap-2">
-            {lines.map((line) => {
-              const selected = selectedLineIds.includes(line.lineId);
-              return (
-                <button
-                  aria-pressed={selected}
-                  className={selected ? "time-chip-selected" : "time-chip"}
-                  key={line.lineId}
-                  onClick={() => toggleLine(line.lineId)}
-                  title={line.description}
-                  type="button"
-                >
-                  {line.lineId}
-                </button>
-              );
-            })}
-          </div>
-        )}
-        </div>
-        )}
-      </section>
+        </button>
+      </nav>
+
+      {activeView === "stop" && (
+        <section
+          aria-labelledby="stop-tab"
+          className="workflow-panel"
+          id="stop-tab-panel"
+          role="tabpanel"
+          tabIndex={0}
+        >
+          <StopMap
+            catalogError={catalogError}
+            catalogLoading={catalogLoading}
+            center={coordinates}
+            focusCenter={mapFocus}
+            isLocating={isLocating}
+            onRefreshLocation={() => locate(true)}
+            onSelectStop={chooseStop}
+            selectedStop={selectedStop}
+            stops={catalogStops}
+          />
+
+          {coordinates && (
+            <StopCombobox
+              isLoading={
+                catalogLoading ||
+                isSearching ||
+                (isLocating && nearbyStops.length === 0)
+              }
+              onQueryChange={updateStopQuery}
+              onSelect={chooseStop}
+              options={
+                searchQuery.trim().length >= 2
+                  ? searchResults
+                  : nearbyStops
+              }
+              query={searchQuery}
+              resultTotal={searchTotal}
+            />
+          )}
+        </section>
       )}
 
-      {selectedLineIds.length > 0 && (
-      <section aria-labelledby="notify-heading" className="mb-8">
-        <div className="mb-3">
-          <StepTitle
-            controls="notify-step-content"
-            expanded={expandedSteps.notify}
-            id="notify-heading"
-            label="03 · Notify"
-            onToggle={() => toggleStep("notify")}
-            selection={`${formatThresholds(thresholds)} min`}
-          />
-        </div>
-        {expandedSteps.notify && (
-        <div id="notify-step-content">
-        <div className="flex flex-wrap gap-2">
-          {OPTIONAL_THRESHOLDS.map((threshold) => {
-            const selected = thresholds.includes(threshold);
-            return (
-              <button
-                aria-pressed={selected}
-                className={selected ? "time-chip-selected" : "time-chip"}
-                key={threshold}
-                onClick={() => toggleThreshold(threshold)}
-                type="button"
-              >
-                {threshold} min
-              </button>
-            );
-          })}
-          <span className="time-chip-required" title="Always enabled">
-            0 min · always
-          </span>
-        </div>
+      {activeView === "buses" && selectedStop && (
+        <section
+          aria-labelledby="buses-tab"
+          className="workflow-panel"
+          id="buses-tab-panel"
+          role="tabpanel"
+          tabIndex={0}
+        >
+          {activeAlarm ? (
+            <div
+              aria-label={
+                activeAlarm.completedAt
+                  ? "Alert complete"
+                  : "Active alert"
+              }
+              className="alert-card alert-card-active"
+              role="region"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <h2 className="section-label text-signal">
+                  {activeAlarm.completedAt
+                    ? "Alerts complete"
+                    : "Active alerts"}
+                </h2>
+                {activeAlarm.completedAt ? (
+                  <button
+                    className="small-action shrink-0"
+                    onClick={() => void restartAlarm(activeAlarm)}
+                    type="button"
+                  >
+                    Restart
+                  </button>
+                ) : (
+                  <span
+                    className="pulse-dot mt-0.5 size-3 shrink-0 rounded-full bg-signal"
+                    title="Alert active"
+                  />
+                )}
+              </div>
 
-        {!activeAlarm && (
-          <div className="mt-4">
+              <div className="mt-4 divide-y divide-ink/10">
+                {activeAlarm.lineAlerts.map((lineAlert) => {
+                  const line = lines.find(
+                    (candidate) => candidate.lineId === lineAlert.lineId,
+                  );
+                  return (
+                    <div
+                      className="py-4"
+                      data-alert-line={lineAlert.lineId}
+                      key={lineAlert.lineId}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <span className="arrival-line-selected">
+                          {formatTransitName(lineAlert.lineId)}
+                        </span>
+                        <span
+                          className={`shrink-0 font-mono text-sm font-bold ${
+                            lineAlert.completedAt
+                              ? "text-signal"
+                              : "text-ink/65"
+                          }`}
+                        >
+                          {lineAlert.completedAt
+                            ? "ARRIVED"
+                            : lineAlert.lastObservedMinutes === null
+                              ? "WAITING"
+                          : `${lineAlert.lastObservedMinutes} min`}
+                        </span>
+                      </div>
+                      <p className="mt-1.5 text-left text-sm leading-snug whitespace-normal text-ink/60">
+                        {formatTransitName(
+                          line?.description ?? `Bus ${lineAlert.lineId}`,
+                        )}
+                      </p>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {OPTIONAL_THRESHOLDS.map((threshold) => (
+                          <span
+                            className={
+                              lineAlert.optionalThresholds.includes(
+                                threshold,
+                              )
+                                ? "time-chip-selected"
+                                : "time-chip time-chip-muted"
+                            }
+                            key={threshold}
+                          >
+                            {threshold} min
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+            </div>
+          ) : (
+            <>
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <div>
+                  <h2 className="section-label">Buses at this stop</h2>
+                  <p className="mt-1 text-sm text-ink/55">
+                    Select a bus to show its alert times.
+                  </p>
+                </div>
+                {lines.length > 4 && (
+                  <div className="flex shrink-0 gap-2">
+                    <button
+                      className="small-action underline"
+                      onClick={() =>
+                        setLineAlerts(
+                          lines.map((line) => ({
+                            lineId: line.lineId,
+                            optionalThresholds: [
+                              ...DEFAULT_ALERT_THRESHOLDS,
+                            ],
+                          })),
+                        )
+                      }
+                      type="button"
+                    >
+                      Select all
+                    </button>
+                    <button
+                      className="small-action underline"
+                      onClick={() => setLineAlerts([])}
+                      type="button"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                )}
+              </div>
+              {isLoadingStop ? (
+                <p className="empty-copy">Loading lines...</p>
+              ) : lines.length === 0 ? (
+                <p className="empty-copy">
+                  No active lines were returned for this stop.
+                </p>
+              ) : (
+                <div className="divide-y divide-ink/10">
+                  {lines.map((line) => {
+                    const lineAlert = lineAlerts.find(
+                      (candidate) => candidate.lineId === line.lineId,
+                    );
+                    const selected = Boolean(lineAlert);
+                    return (
+                      <div className="py-3" key={line.lineId}>
+                        <button
+                          aria-expanded={selected}
+                          aria-pressed={selected}
+                          className="w-full text-left"
+                          onClick={() => toggleLine(line.lineId)}
+                          type="button"
+                        >
+                          <span className="flex items-center justify-between gap-3">
+                            <span
+                              className={
+                                selected
+                                  ? "arrival-line-selected"
+                                  : "arrival-line"
+                              }
+                            >
+                              {formatTransitName(line.lineId)}
+                            </span>
+                            <span
+                              aria-hidden="true"
+                              className="text-ink/45"
+                            >
+                              {selected ? "−" : "+"}
+                            </span>
+                          </span>
+                          <span className="mt-1.5 block text-left text-sm leading-snug whitespace-normal text-ink/65">
+                            {formatTransitName(line.description)}
+                          </span>
+                        </button>
+                        {lineAlert && (
+                          <div className="mt-2 flex flex-wrap gap-1.5">
+                            {OPTIONAL_THRESHOLDS.map((threshold) => {
+                              const thresholdSelected =
+                                lineAlert.optionalThresholds.includes(
+                                  threshold,
+                                );
+                              return (
+                                <button
+                                  aria-label={`${formatTransitName(
+                                    line.lineId,
+                                  )}: ${threshold} min`}
+                                  aria-pressed={thresholdSelected}
+                                  className={
+                                    thresholdSelected
+                                      ? "time-chip-selected"
+                                      : "time-chip"
+                                  }
+                                  key={threshold}
+                                  onClick={() =>
+                                    toggleThreshold(
+                                      line.lineId,
+                                      threshold,
+                                    )
+                                  }
+                                  type="button"
+                                >
+                                  {threshold} min
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </>
+          )}
+
+        </section>
+      )}
+
+      <dialog
+        aria-labelledby="favorites-heading"
+        className="favorites-dialog"
+        onCancel={(event) => {
+          event.preventDefault();
+          setFavoritesOpen(false);
+        }}
+        onClick={(event) => {
+          if (event.target === event.currentTarget) {
+            setFavoritesOpen(false);
+          }
+        }}
+        onClose={() => setFavoritesOpen(false)}
+        ref={favoritesDialogRef}
+      >
+        <div className="favorites-sheet">
+          <div className="flex items-center justify-between gap-3 border-b border-ink/15 pb-4">
+            <div className="flex items-center gap-2">
+              <Icon name="star" className="size-5 text-signal" />
+              <h2
+                className="section-label text-signal"
+                id="favorites-heading"
+              >
+                Favorites
+              </h2>
+            </div>
             <button
-              className="primary-button flex items-center gap-2"
-              disabled={!selectedStop || selectedLineIds.length === 0}
-              onClick={() => {
-                if (selectedStop) {
-                  void armWith(selectedStop, selectedLineIds, thresholds);
-                }
-              }}
+              aria-label="Close favorites"
+              className="flex size-10 items-center justify-center text-xl text-ink/60 hover:text-ink"
+              onClick={() => setFavoritesOpen(false)}
               type="button"
             >
-              <Icon name="bell" className="notify-bell-ready size-4" />
-              Notify me
+              ×
             </button>
           </div>
-        )}
+
+          {canSaveFavorite && (
+            <form
+              className="border-b border-ink/15 py-4"
+              onSubmit={(event) => {
+                event.preventDefault();
+                saveFavorite();
+              }}
+            >
+              <label
+                className="section-label"
+                htmlFor="favorite-name"
+              >
+                Save current setup
+              </label>
+              <div className="mt-2 flex gap-2">
+                <input
+                  className="field min-w-0 flex-1"
+                  id="favorite-name"
+                  maxLength={40}
+                  onChange={(event) =>
+                    setFavoriteName(event.target.value)
+                  }
+                  placeholder="Favorite name"
+                  value={favoriteName}
+                />
+                <button
+                  className="primary-button"
+                  disabled={!favoriteName.trim()}
+                  type="submit"
+                >
+                  Save
+                </button>
+              </div>
+              <p className="mt-2 text-xs text-ink/55">
+                {selectedStop
+                  ? formatTransitName(selectedStop.name)
+                  : null}{" "}
+                ·{" "}
+                {lineAlerts
+                  .map(
+                    (lineAlert) =>
+                      `${formatTransitName(
+                        lineAlert.lineId,
+                      )} ${formatThresholds(lineAlert.optionalThresholds)}`,
+                  )
+                  .join(" · ")}
+              </p>
+            </form>
+          )}
+
+          <div className="max-h-[55vh] overflow-y-auto">
+            {favorites.length === 0 ? (
+              <div className="py-8 text-center text-sm text-ink/45">
+                <p>No favorites saved yet.</p>
+                <p className="mt-1">
+                  You can save a new favorite when you reach the Notify
+                  Me tab.
+                </p>
+              </div>
+            ) : (
+              <div className="divide-y divide-ink/10">
+                {sortFavorites(favorites).map((favorite) => (
+                  <div
+                    className="flex items-center gap-3 py-4"
+                    key={favorite.id}
+                  >
+                    <button
+                      className="min-w-0 flex-1 text-left"
+                      onClick={() => void enableFavorite(favorite)}
+                      type="button"
+                    >
+                      <span className="block truncate font-semibold">
+                        {favorite.name}
+                      </span>
+                      <span className="block truncate text-xs text-ink/55">
+                        {formatTransitName(favorite.stop.name)} ·{" "}
+                        {favorite.lineAlerts
+                          .map(
+                            (lineAlert) =>
+                              `${formatTransitName(
+                                lineAlert.lineId,
+                              )} ${formatThresholds(
+                                lineAlert.optionalThresholds,
+                              )}`,
+                          )
+                          .join(" · ")}
+                      </span>
+                    </button>
+                    <button
+                      className="small-action"
+                      onClick={() => void enableFavorite(favorite)}
+                      type="button"
+                    >
+                      Enable
+                    </button>
+                    <details className="relative" data-favorite-menu>
+                      <summary className="small-action list-none">
+                        •••
+                      </summary>
+                      <div className="absolute right-0 z-20 mt-1 w-32 border border-ink/15 bg-paper p-1 shadow-lg">
+                        <button
+                          className="menu-action"
+                          onClick={(event) => {
+                            renameFavorite(favorite);
+                            closeFavoriteMenu(event.currentTarget);
+                          }}
+                          type="button"
+                        >
+                          Rename
+                        </button>
+                        <button
+                          className="menu-action"
+                          onClick={(event) => {
+                            updateFavorite(favorite);
+                            closeFavoriteMenu(event.currentTarget);
+                          }}
+                          type="button"
+                        >
+                          Update
+                        </button>
+                        <button
+                          className="menu-action text-red-700"
+                          onClick={(event) => {
+                            deleteFavorite(favorite);
+                            closeFavoriteMenu(event.currentTarget);
+                          }}
+                          type="button"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </details>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
-        )}
-      </section>
-      )}
+      </dialog>
 
       {toastMessage && (
         <Toast
@@ -1382,7 +1468,7 @@ export function TickerApp() {
         />
       )}
 
-      <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-ink/15 pt-4 text-xs text-ink/45">
+      <footer className="mt-8 flex flex-wrap items-center justify-between gap-3 pt-4 text-xs text-ink/45">
         <p>Live data by OASA</p>
         <button
           className="small-action underline"
