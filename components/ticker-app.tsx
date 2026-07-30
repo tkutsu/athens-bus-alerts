@@ -924,7 +924,7 @@ export function TickerApp() {
   const toastIsError = Boolean(error || catalogError || arrivalError);
 
   return (
-    <main className="mx-auto min-h-screen w-full max-w-2xl px-4 pt-6 pb-10 sm:px-6 sm:pt-10">
+    <main className="mx-auto flex min-h-dvh w-full max-w-2xl flex-col px-4 pt-6 pb-10 sm:px-6 sm:pt-10">
       <header className="mb-5 flex items-start justify-between">
         <h1 className="flex items-center gap-2 text-xs font-bold tracking-[0.22em] text-signal uppercase">
           <Icon name="bus" className="size-5" />
@@ -1468,7 +1468,7 @@ export function TickerApp() {
         />
       )}
 
-      <footer className="mt-8 flex flex-wrap items-center justify-between gap-3 pt-4 text-xs text-ink/45">
+      <footer className="mt-auto flex flex-wrap items-center justify-between gap-3 pt-4 text-xs text-ink/45">
         <p>Live data by OASA</p>
         <button
           className="small-action underline"
