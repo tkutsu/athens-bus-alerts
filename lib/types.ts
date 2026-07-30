@@ -31,36 +31,41 @@ export interface Arrival {
   minutes: number;
 }
 
+export interface LineAlertConfig {
+  lineId: string;
+  optionalThresholds: OptionalThreshold[];
+}
+
 export interface Favorite {
   id: string;
   name: string;
   stop: Pick<StopSummary, "code" | "name">;
-  lineIds: string[];
-  optionalThresholds: OptionalThreshold[];
+  lineAlerts: LineAlertConfig[];
   createdAt: string;
   updatedAt: string;
   lastEnabledAt: string | null;
+}
+
+export interface ActiveLineAlert extends LineAlertConfig {
+  firedThresholds: Array<OptionalThreshold | 0>;
+  predictedZeroAt: string | null;
+  lastObservedMinutes: number | null;
+  completedAt: string | null;
 }
 
 export interface ActiveAlarm {
   id: string;
   stopCode: string;
   stopName: string;
-  selectedLineIds: string[];
-  optionalThresholds: OptionalThreshold[];
-  firedThresholds: Array<OptionalThreshold | 0>;
-  predictedZeroAt: string | null;
-  lastObservedLineId: string | null;
-  lastObservedMinutes: number | null;
+  lineAlerts: ActiveLineAlert[];
   armedAt: string;
   completedAt: string | null;
 }
 
 export interface StoredState {
-  version: 2;
+  version: 3;
   selectedStop: Pick<StopSummary, "code" | "name"> | null;
-  selectedLineIds: string[];
-  optionalThresholds: OptionalThreshold[];
+  lineAlerts: LineAlertConfig[];
   favorites: Favorite[];
   activeAlarm: ActiveAlarm | null;
 }

@@ -10,102 +10,104 @@ export interface CandidateArrival {
 
 export interface AlertEvent {
   kind: "warning" | "zero";
-  lineId: string | null;
+  lineId: string;
   minutes: number;
   threshold: OptionalThreshold | 0;
 }
 
 export interface AlarmEvaluation {
   alarm: ActiveAlarm;
-  event: AlertEvent | null;
+  events: AlertEvent[];
 }
 
-/** Advances a shared multi-line alarm using the earliest selected arrival. */
+/** Advances every configured bus independently from its earliest arrival. */
 export function evaluateAlarm(
   alarm: ActiveAlarm,
   arrivals: CandidateArrival[],
   now = new Date(),
 ): AlarmEvaluation {
   if (alarm.completedAt) {
-    return { alarm, event: null };
+    return { alarm, events: [] };
   }
 
-  const eligible = arrivals
-    .filter((arrival) => alarm.selectedLineIds.includes(arrival.lineId))
-    .sort((a, b) => a.minutes - b.minutes);
-  const earliest = eligible[0];
-  const predictedZeroAt = earliest
-    ? new Date(now.getTime() + earliest.minutes * 60_000).toISOString()
-    : alarm.predictedZeroAt;
+  const events: AlertEvent[] = [];
+  const lineAlerts = alarm.lineAlerts.map((lineAlarm) => {
+    if (lineAlarm.completedAt) return lineAlarm;
 
-  if (
-    earliest?.minutes === 0 ||
-    (predictedZeroAt &&
-      new Date(predictedZeroAt).getTime() <= now.getTime())
-  ) {
-    return {
-      alarm: {
-        ...alarm,
-        firedThresholds: [
-          ...new Set([...alarm.firedThresholds, 0 as const]),
-        ],
-        predictedZeroAt: null,
-        lastObservedLineId:
-          earliest?.lineId ?? alarm.lastObservedLineId,
-        lastObservedMinutes: 0,
-        completedAt: now.toISOString(),
-      },
-      event: {
+    const earliest = arrivals
+      .filter((arrival) => arrival.lineId === lineAlarm.lineId)
+      .sort((a, b) => a.minutes - b.minutes)[0];
+    const predictedZeroAt = earliest
+      ? new Date(now.getTime() + earliest.minutes * 60_000).toISOString()
+      : lineAlarm.predictedZeroAt;
+
+    if (
+      earliest?.minutes === 0 ||
+      (predictedZeroAt &&
+        new Date(predictedZeroAt).getTime() <= now.getTime())
+    ) {
+      events.push({
         kind: "zero",
-        lineId: earliest?.lineId ?? alarm.lastObservedLineId,
+        lineId: lineAlarm.lineId,
         minutes: 0,
         threshold: 0,
-      },
-    };
-  }
+      });
+      return {
+        ...lineAlarm,
+        firedThresholds: [
+          ...new Set([...lineAlarm.firedThresholds, 0 as const]),
+        ],
+        predictedZeroAt: null,
+        lastObservedMinutes: 0,
+        completedAt: now.toISOString(),
+      };
+    }
 
-  if (!earliest) {
-    return {
-      alarm: { ...alarm, predictedZeroAt },
-      event: null,
-    };
-  }
+    if (!earliest) {
+      return { ...lineAlarm, predictedZeroAt };
+    }
 
-  const crossedThresholds = alarm.optionalThresholds.filter(
-    (threshold) =>
-      !alarm.firedThresholds.includes(threshold) &&
-      earliest.minutes <= threshold,
-  );
+    const crossedThresholds = lineAlarm.optionalThresholds.filter(
+      (threshold) =>
+        !lineAlarm.firedThresholds.includes(threshold) &&
+        earliest.minutes <= threshold,
+    );
+    if (crossedThresholds.length === 0) {
+      return {
+        ...lineAlarm,
+        predictedZeroAt,
+        lastObservedMinutes: earliest.minutes,
+      };
+    }
 
-  const updatedAlarm: ActiveAlarm = {
-    ...alarm,
-    predictedZeroAt,
-    lastObservedLineId: earliest.lineId,
-    lastObservedMinutes: earliest.minutes,
-  };
-
-  if (crossedThresholds.length === 0) {
-    return { alarm: updatedAlarm, event: null };
-  }
-
-  // Report only the closest crossed warning to avoid a burst when OASA jumps.
-  const threshold = Math.min(...crossedThresholds) as OptionalThreshold;
-  const allCrossed = alarm.optionalThresholds.filter(
-    (candidate) => earliest.minutes <= candidate,
-  );
-
-  return {
-    alarm: {
-      ...updatedAlarm,
-      firedThresholds: [
-        ...new Set([...alarm.firedThresholds, ...allCrossed]),
-      ],
-    },
-    event: {
+    // Report only the closest crossed warning to avoid a burst when OASA jumps.
+    const threshold = Math.min(...crossedThresholds) as OptionalThreshold;
+    const allCrossed = lineAlarm.optionalThresholds.filter(
+      (candidate) => earliest.minutes <= candidate,
+    );
+    events.push({
       kind: "warning",
-      lineId: earliest.lineId,
+      lineId: lineAlarm.lineId,
       minutes: earliest.minutes,
       threshold,
+    });
+    return {
+      ...lineAlarm,
+      firedThresholds: [
+        ...new Set([...lineAlarm.firedThresholds, ...allCrossed]),
+      ],
+      predictedZeroAt,
+      lastObservedMinutes: earliest.minutes,
+    };
+  });
+
+  const completed = lineAlerts.every((lineAlarm) => lineAlarm.completedAt);
+  return {
+    alarm: {
+      ...alarm,
+      lineAlerts,
+      completedAt: completed ? now.toISOString() : null,
     },
+    events,
   };
 }

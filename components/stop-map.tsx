@@ -10,6 +10,7 @@ import {
   findStopsInBounds,
   type CatalogStop,
 } from "@/lib/stop-catalog";
+import { formatTransitName } from "@/lib/display";
 import type { Coordinates, StopSummary } from "@/lib/types";
 
 interface StopMapProps {
@@ -183,7 +184,7 @@ export function StopMap({
       });
 
       marker
-        .bindTooltip(stop.name, {
+        .bindTooltip(formatTransitName(stop.name), {
           direction: "top",
           offset: [0, -4],
         })

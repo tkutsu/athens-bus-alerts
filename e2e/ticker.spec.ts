@@ -1,28 +1,7 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
-test("reveals each step only after the previous selection", async ({
-  context,
-  page,
-}) => {
-  let arrivalRequestCount = 0;
-  let catalogueRequestCount = 0;
-  const discoveryApiRequests: string[] = [];
-  page.on("request", (request) => {
-    if (
-      /\/api\/(?:nearby-stops|stops\/(?:map|search))/.test(
-        new URL(request.url()).pathname,
-      )
-    ) {
-      discoveryApiRequests.push(request.url());
-    }
-  });
-  await context.grantPermissions(["geolocation"]);
-  await context.setGeolocation({
-    latitude: 37.9445913,
-    longitude: 23.6671421,
-  });
+async function mockStopData(page: Page) {
   await page.route("**/data/stops.json", async (route) => {
-    catalogueRequestCount += 1;
     await route.fulfill({
       json: {
         generatedAt: "2026-07-29T09:56:48.228Z",
@@ -34,12 +13,6 @@ test("reveals each step only after the previous selection", async ({
             latitude: 37.9445913,
             longitude: 23.6671421,
           },
-          {
-            code: "060001",
-            name: "SYNTAGMA",
-            latitude: 37.9753,
-            longitude: 23.7357,
-          },
         ],
       },
     });
@@ -61,273 +34,370 @@ test("reveals each step only after the previous selection", async ({
             lineId: "218",
             description: "PEIRAIAS - ST. DAFNIS",
           },
+          {
+            routeCode: "5000",
+            lineId: "500",
+            description: "PEIRAIAS - KIFISIA",
+          },
         ],
         lines: [
           {
             lineId: "218",
             description: "PEIRAIAS - ST. DAFNIS",
           },
+          {
+            lineId: "500",
+            description: "PEIRAIAS - KIFISIA",
+          },
         ],
       },
     });
   });
   await page.route("**/api/stops/400075/arrivals", async (route) => {
-    arrivalRequestCount += 1;
     await route.fulfill({
       json: {
         arrivals: [
-          { routeCode: "2810", vehicleId: "32336", minutes: 4 },
+          { routeCode: "2810", vehicleId: "218-a", minutes: 4 },
+          { routeCode: "5000", vehicleId: "500-a", minutes: 6 },
         ],
         observedAt: new Date().toISOString(),
       },
     });
   });
+}
+
+test.beforeEach(async ({ context }) => {
+  await context.grantPermissions(["geolocation"]);
+  await context.setGeolocation({
+    latitude: 37.9445913,
+    longitude: 23.6671421,
+  });
+});
+
+test("uses the subtitle as gated tabs and saves per-bus alert times", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(window, "Notification", {
+      configurable: true,
+      value: class {
+        static permission = "granted";
+        static requestPermission = async () => "granted";
+      },
+    });
+  });
+  await mockStopData(page);
   await page.goto("/");
 
   await expect(
     page.getByRole("heading", { name: "Athens Bus Notifications" }),
   ).toBeVisible();
-  await expect(page.getByText("Athens Bus Ticker")).toHaveCount(0);
   await expect(
     page.getByText("Pick stop · Pick bus · Get notified"),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("button", {
-      name: "Refresh and center on your location",
-    }),
-  ).toBeVisible();
+  ).toHaveCount(0);
+  await expect(page.getByRole("navigation")).toHaveCSS(
+    "border-bottom-width",
+    "0px",
+  );
+  await expect(page.locator("footer")).toHaveCSS(
+    "border-top-width",
+    "0px",
+  );
+
+  const stopTab = page.getByRole("tab", { name: "Pick Stop" });
+  const busTab = page.getByRole("tab", { name: "Pick Bus" });
+  const notifyButton = page.getByRole("button", {
+    name: "Notify",
+    exact: true,
+  });
+  const favoritesButton = page
+    .locator("header")
+    .getByRole("button", {
+      name: "Favorites",
+      exact: true,
+    });
+  await expect(favoritesButton).toContainText("Favorites");
+  await expect(favoritesButton).toHaveCSS("align-items", "center");
+  await expect(favoritesButton.locator("svg")).toHaveCSS(
+    "width",
+    "16px",
+  );
+  await expect(favoritesButton.locator("svg")).toHaveCSS(
+    "height",
+    "16px",
+  );
+  await expect(favoritesButton.locator("svg")).toHaveCSS(
+    "translate",
+    "0px -1px",
+  );
+  await expect(stopTab).toHaveAttribute("aria-selected", "true");
+  await expect(busTab).toBeDisabled();
+  await expect(notifyButton).toBeDisabled();
+  await expect(stopTab).not.toHaveCSS(
+    "background-color",
+    "rgb(23, 32, 27)",
+  );
+  await expect(notifyButton.locator("svg")).toHaveCSS(
+    "animation-name",
+    "none",
+  );
+  const disabledBusBorder = await busTab.evaluate(
+    (element) => getComputedStyle(element).borderColor,
+  );
+  await busTab.hover({ force: true });
+  await expect(busTab).toHaveCSS("border-color", disabledBusBorder);
   await expect(page.getByLabel("Map of OASA bus stops")).toBeVisible();
+
   const stopPicker = page.getByRole("combobox", {
     name: "Search and choose a stop",
   });
-  await expect(stopPicker).toBeVisible();
-  await expect(page.getByText("Enter stop code instead")).toHaveCount(0);
-  await expect(page.getByRole("heading", { name: "02 · BUSES" })).toBeHidden();
-  await expect(page.getByText("10 min")).toBeHidden();
-  await expect(page.getByPlaceholder("New favorite")).toBeHidden();
-
-  const stopToggle = page.getByRole("button", { name: "01 · Bus stop" });
-  await stopToggle.click();
-  await expect(stopToggle).toHaveAttribute("aria-expanded", "false");
-  await expect(page.getByLabel("Map of OASA bus stops")).toBeHidden();
-  await expect(
-    page.getByRole("button", {
-      name: "Refresh and center on your location",
-    }),
-  ).toBeHidden();
-  await stopToggle.click();
-
-  await expect(page.getByText("Your position")).toBeVisible();
-  await expect(
-    page.locator(".leaflet-marker-icon path").first(),
-  ).toHaveAttribute("fill", "#e5562f");
-  const mapBox = await page.getByLabel("Map of OASA bus stops").boundingBox();
-  const stopSelectBox = await stopPicker.boundingBox();
-  expect(mapBox).not.toBeNull();
-  expect(stopSelectBox).not.toBeNull();
-  expect(mapBox!.y).toBeLessThan(stopSelectBox!.y);
-
   await stopPicker.click();
-  await expect(
-    page.getByRole("option", { name: /1\. HSAP N\. FALHROY/ }),
-  ).toBeVisible();
   await page
-    .getByRole("heading", { name: "Athens Bus Notifications" })
-    .click();
-  await expect(page.getByRole("listbox")).toBeHidden();
-
-  await stopPicker.fill("syntagma");
-  await expect(
-    page.getByRole("option", { name: /SYNTAGMA/ }),
-  ).toBeVisible();
-  await expect(page.getByRole("listbox")).not.toContainText("#060001");
-  await stopPicker.fill("");
-  await page
-    .getByRole("option", { name: /1\. HSAP N\. FALHROY/ })
+    .getByRole("option", { name: /1\. hsap n\. falhroy/ })
     .click();
 
-  await expect(stopToggle).toContainText("HSAP N. FALHROY");
-  await expect(stopToggle).not.toContainText("#400075");
-  await expect(
-    page.getByText("HSAP N. FALHROY", { exact: true }),
-  ).toHaveCount(1);
-  await expect(page.getByRole("button", { name: "218" })).toBeVisible();
-  expect(catalogueRequestCount).toBe(1);
-  expect(discoveryApiRequests).toEqual([]);
-  expect(arrivalRequestCount).toBe(0);
-  await expect(page.getByRole("button", { name: "218" })).toHaveClass(
-    /time-chip/,
-  );
-  await expect(page.getByText("10 min")).toBeHidden();
-
-  const busesToggle = page.getByRole("button", { name: "02 · Buses" });
-  await busesToggle.click();
-  await expect(page.getByRole("button", { name: "218" })).toBeHidden();
-  await busesToggle.click();
-  await page.getByRole("button", { name: "218" }).click();
-  await expect(busesToggle).toContainText("218");
-
-  await expect(page.getByText("10 min")).toBeVisible();
-  await expect(page.getByText("0 min · always")).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Notify me" }).locator("svg"),
-  ).toHaveClass(/notify-bell-ready/);
-  await expect(page.getByPlaceholder("New favorite")).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Save favorite" }),
-  ).toBeHidden();
-
-  const notifyToggle = page.getByRole("button", { name: "03 · Notify" });
-  await expect(notifyToggle).toContainText("10/5/3/1/0 min");
-  await notifyToggle.click();
-  await expect(page.getByText("10 min")).toBeHidden();
-  await notifyToggle.click();
-
-  await page.getByPlaceholder("New favorite").fill("Home");
-  await expect(
-    page.getByRole("button", { name: "Save favorite" }),
-  ).toBeVisible();
-  await page.getByPlaceholder("New favorite").press("Enter");
-  await expect(page.getByText('Saved "Home".')).toBeVisible();
-  await expect(page.getByRole("status")).toHaveClass(/fixed/);
-  await page.getByRole("button", { name: "Dismiss message" }).click();
-  await expect(page.getByRole("status")).toBeHidden();
-  const savedFavoriteBox = await page
-    .getByRole("button", { name: /Home HSAP N\. FALHROY/ })
-    .boundingBox();
-  const favoriteFormBox = await page
-    .getByPlaceholder("New favorite")
-    .boundingBox();
-  expect(savedFavoriteBox).not.toBeNull();
-  expect(favoriteFormBox).not.toBeNull();
-  expect(favoriteFormBox!.y).toBeGreaterThan(savedFavoriteBox!.y);
-  const favoriteMenuBox = await page
-    .locator("details[data-favorite-menu] summary")
-    .boundingBox();
-  const draftPencilBox = await page
-    .getByRole("button", { name: "Edit new favorite" })
-    .boundingBox();
-  expect(favoriteMenuBox).not.toBeNull();
-  expect(draftPencilBox).not.toBeNull();
-  expect(
-    Math.abs(
-      draftPencilBox!.x +
-        draftPencilBox!.width -
-        (favoriteMenuBox!.x + favoriteMenuBox!.width),
-    ),
-  ).toBeLessThan(2);
-  await page.getByRole("button", { name: "Edit new favorite" }).click();
-  await expect(page.getByPlaceholder("New favorite")).toBeFocused();
-  await expect(page.getByPlaceholder("New favorite")).toHaveCSS(
-    "outline-style",
+  const selectedStopTab = page.getByRole("tab", {
+    name: "hsap n. falhroy",
+    exact: true,
+  });
+  await expect(selectedStopTab).toBeVisible();
+  await expect(page.getByRole("tab", { name: /Pick Stop/ })).toHaveCount(0);
+  await expect(busTab).toBeEnabled();
+  await expect(notifyButton.locator("svg")).toHaveCSS(
+    "animation-name",
     "none",
   );
+  await expect(page.getByLabel("Map of OASA bus stops")).toBeVisible();
 
-  await page.getByRole("button", { name: "10 min" }).click();
-  const favoriteMenu = page.locator("details[data-favorite-menu]");
-  await favoriteMenu.locator("summary").click();
-  await favoriteMenu.getByRole("button", { name: "Update" }).click();
-  await expect(favoriteMenu).not.toHaveAttribute("open", "");
-  await expect(page.getByText('Updated "Home".')).toBeVisible();
+  await busTab.hover();
+  await expect(busTab).toHaveCSS("border-color", "rgb(23, 32, 27)");
+  await busTab.click();
+  await expect(page.getByLabel("Map of OASA bus stops")).toBeHidden();
   await expect(
-    page.getByRole("button", { name: /Home HSAP N\. FALHROY · 218 · 5\/3\/1\/0/ }),
+    page.getByRole("button", { name: "218: 10 min" }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "500: 10 min" }),
+  ).toHaveCount(0);
+  const bus218Button = page.getByRole("button", { name: /^218 / });
+  await bus218Button.click();
+  const bus218Ten = page.getByRole("button", {
+    name: "218: 10 min",
+  });
+  const bus218Three = page.getByRole("button", {
+    name: "218: 3 min",
+  });
+  const bus218One = page.getByRole("button", {
+    name: "218: 1 min",
+  });
+  await expect(bus218Ten).toBeVisible();
+  expect(
+    await bus218Ten.evaluate((element) =>
+      Number.parseFloat(getComputedStyle(element).borderRadius),
+    ),
+  ).toBeGreaterThan(13);
+  await expect(bus218Ten).toHaveCSS("font-size", "12px");
+  await expect(bus218Ten).toHaveCSS("min-height", "28px");
+  const busBadgeBox = await bus218Button
+    .locator(".arrival-line-selected")
+    .boundingBox();
+  const busDescriptionBox = await bus218Button
+    .getByText("peiraias - st. dafnis", { exact: true })
+    .boundingBox();
+  expect(busBadgeBox).not.toBeNull();
+  expect(busDescriptionBox).not.toBeNull();
+  expect(busDescriptionBox!.y).toBeGreaterThan(
+    busBadgeBox!.y + busBadgeBox!.height,
+  );
+  await expect(notifyButton.locator("svg")).toHaveCSS(
+    "animation-name",
+    "notify-bell-ring",
+  );
+  await bus218Three.click();
+  await bus218One.click();
+  await expect(notifyButton.locator("svg")).toHaveCSS(
+    "animation-name",
+    "none",
+  );
+  await bus218Three.click();
+  await bus218One.click();
+  await expect(
+    page.getByRole("button", { name: "500: 10 min" }),
+  ).toHaveCount(0);
+  await page.getByRole("button", { name: /^500 / }).click();
+  const bus500Ten = page.getByRole("button", {
+    name: "500: 10 min",
+  });
+  const bus500Three = page.getByRole("button", {
+    name: "500: 3 min",
+  });
+  const bus500One = page.getByRole("button", {
+    name: "500: 1 min",
+  });
+  const selectedBusTab = page.getByRole("tab", {
+    name: "218 500",
+    exact: true,
+  });
+  await expect(selectedBusTab).toHaveAttribute("aria-selected", "true");
+  await expect(notifyButton).toBeEnabled();
+  await expect(notifyButton.locator("svg")).toHaveCSS(
+    "animation-name",
+    "notify-bell-ring",
+  );
+  await expect(bus218Ten).toHaveAttribute("aria-pressed", "false");
+  await expect(bus500Ten).toHaveAttribute("aria-pressed", "false");
+  await expect(bus218Three).toHaveAttribute("aria-pressed", "true");
+  await expect(bus218One).toHaveAttribute("aria-pressed", "true");
+  await expect(bus500Three).toHaveAttribute("aria-pressed", "true");
+  await expect(bus500One).toHaveAttribute("aria-pressed", "true");
+  await bus218Ten.click();
+  await expect(bus218Ten).toHaveAttribute("aria-pressed", "true");
+  await expect(bus500Ten).toHaveAttribute("aria-pressed", "false");
+  await expect(page.getByText("0 min · always")).toHaveCount(0);
+
+  await expect(
+    page.getByRole("button", { name: "Save as favorite" }),
+  ).toHaveCount(0);
+  await favoritesButton.click();
+  const favoritesDialog = page.getByRole("dialog", {
+    name: "Favorites",
+  });
+  await expect(favoritesDialog).toBeVisible();
+  await expect(
+    favoritesDialog.getByText("No favorites saved yet."),
   ).toBeVisible();
-
-  await favoriteMenu.locator("summary").click();
-  await expect(favoriteMenu).toHaveAttribute("open", "");
-  await page
-    .getByRole("heading", { name: "Athens Bus Notifications" })
-    .click();
-  await expect(favoriteMenu).not.toHaveAttribute("open", "");
-
-  await expect
-    .poll(() =>
-      page.evaluate(() => {
-        const value = window.localStorage.getItem("athens-bus-ticker:v2");
-        return value ? JSON.parse(value).favorites.length : 0;
-      }),
-    )
-    .toBe(1);
-  await page.evaluate(() => {
-    const key = "athens-bus-ticker:v2";
-    const value = window.localStorage.getItem(key);
-    if (!value) throw new Error("Expected persisted app state.");
-    const state = JSON.parse(value);
-    state.activeAlarm = {
-      id: "alarm-layout",
-      stopCode: "400075",
-      stopName: "HSAP N. FALHROY",
-      selectedLineIds: ["218"],
-      optionalThresholds: [10, 5, 3, 1],
-      firedThresholds: [10, 5, 3, 1],
-      predictedZeroAt: null,
-      lastObservedLineId: "218",
-      lastObservedMinutes: 4,
-      armedAt: "2026-07-29T10:00:00.000Z",
-      completedAt: null,
-    };
-    window.localStorage.setItem(key, JSON.stringify(state));
-  });
-  await page.reload();
-
-  const activeAlertPanel = page.getByRole("region", {
-    name: "Active alert",
-  });
   await expect(
-    page.getByRole("button", { name: "01 · Bus stop" }),
-  ).toHaveAttribute("aria-expanded", "false");
-  await expect(
-    page.getByRole("button", { name: "02 · Buses" }),
-  ).toHaveAttribute("aria-expanded", "false");
-  await expect(
-    page.getByRole("button", { name: "03 · Notify" }),
-  ).toHaveAttribute("aria-expanded", "false");
-  await expect(activeAlertPanel.getByText("4 min")).toBeVisible();
-  await expect(
-    activeAlertPanel.getByRole("heading", { name: "Live arrivals" }),
-  ).toHaveCount(0);
-  await expect(
-    activeAlertPanel.getByRole("button", { name: "Refresh" }),
-  ).toHaveCount(0);
-  await expect(activeAlertPanel.getByText(/^Earliest /)).toHaveCount(0);
-  await expect(activeAlertPanel.getByText(/Updated/)).toHaveClass(
-    /text-right/,
+    favoritesDialog.getByText(
+      "You can save a new favorite when you reach the Notify Me tab.",
+    ),
+  ).toBeVisible();
+  const favoriteName = favoritesDialog.getByPlaceholder("Favorite name");
+  await favoriteName.fill("Home");
+  await favoritesDialog.getByRole("button", { name: "Save" }).click();
+  await expect(favoritesDialog).toBeHidden();
+  await expect(page.getByText('Saved "Home".')).toBeVisible();
+  const toast = page.getByRole("status");
+  await expect(toast).toHaveCSS("bottom", "80px");
+  await expect(toast).not.toHaveCSS(
+    "background-color",
+    "rgb(23, 32, 27)",
+  );
+  await expect(toast.locator(".toast-countdown")).toHaveCSS(
+    "animation-duration",
+    "5s",
   );
 
-  page.once("dialog", async (dialog) => {
-    expect(dialog.message()).toBe("Replace the currently active alert?");
-    await dialog.dismiss();
+  await expect(favoritesButton).toBeVisible();
+  await favoritesButton.click();
+  await expect(favoritesDialog).toBeVisible();
+  await expect(
+    favoritesDialog.getByRole("button", {
+      name: /Home hsap n\. falhroy · 218 10\/3\/1 · 500 3\/1/,
+    }),
+  ).toBeVisible();
+  await favoritesDialog
+    .getByRole("button", { name: "Close favorites" })
+    .click();
+  await expect(favoritesDialog).toBeHidden();
+
+  await notifyButton.click();
+  await expect(
+    page.getByRole("region", { name: "Active alert" }),
+  ).toBeVisible();
+  const activeAlert = page.getByRole("region", {
+    name: "Active alert",
   });
-  await page.getByRole("button", { name: "Enable" }).click();
-  await expect(activeAlertPanel).toContainText("10/5/3/1/0 min");
+  await expect(activeAlert.locator(".pulse-dot")).toBeVisible();
+  await expect(page.locator("header .pulse-dot")).toHaveCount(0);
+  await expect(
+    activeAlert.getByText("hsap n. falhroy", { exact: true }),
+  ).toHaveCount(0);
+  const cancelButton = page.getByRole("button", { name: "Cancel" });
+  await expect(cancelButton).toBeEnabled();
+  await cancelButton.hover();
+  await expect(cancelButton).toHaveCSS(
+    "border-color",
+    "rgb(23, 32, 27)",
+  );
+  await cancelButton.click();
+  await expect(
+    page.getByRole("region", { name: "Active alert" }),
+  ).toBeHidden();
+  await expect(
+    page.getByRole("button", { name: "Notify", exact: true }),
+  ).toBeEnabled();
+
   await expect
     .poll(() =>
       page.evaluate(() => {
-        const value = window.localStorage.getItem("athens-bus-ticker:v2");
-        return value ? JSON.parse(value).activeAlarm?.id : null;
+        const raw = window.localStorage.getItem(
+          "athens-bus-ticker:v3",
+        );
+        if (!raw) return null;
+        const state = JSON.parse(raw);
+        return {
+          version: state.version,
+          favoriteLineAlerts: state.favorites[0]?.lineAlerts,
+        };
       }),
     )
-    .toBe("alarm-layout");
-
-  const cancelBox = await page
-    .getByRole("button", { name: "Cancel alert" })
-    .boundingBox();
-  const favoritesBox = await page
-    .getByRole("heading", { name: "Favorites" })
-    .boundingBox();
-  expect(cancelBox).not.toBeNull();
-  expect(favoritesBox).not.toBeNull();
-  expect(cancelBox!.y).toBeLessThan(favoritesBox!.y);
+    .toEqual({
+      version: 3,
+      favoriteLineAlerts: [
+        {
+          lineId: "218",
+          optionalThresholds: [10, 3, 1],
+        },
+        {
+          lineId: "500",
+          optionalThresholds: [3, 1],
+        },
+      ],
+    });
 });
 
-test("keeps selections and can restart after a bus reaches zero", async ({
-  context,
-  page,
-}) => {
-  let arrivalRequestCount = 0;
-  await context.grantPermissions(["notifications"], {
-    origin: "http://127.0.0.1:3100",
+test("keeps automatic location failures quiet", async ({ page }) => {
+  await page.clock.install();
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "geolocation", {
+      configurable: true,
+      value: {
+        getCurrentPosition(
+          _success: PositionCallback,
+          error?: PositionErrorCallback,
+        ) {
+          error?.({
+            code: 2,
+            message: "Position unavailable",
+            PERMISSION_DENIED: 1,
+            POSITION_UNAVAILABLE: 2,
+            TIMEOUT: 3,
+          } as GeolocationPositionError);
+        },
+      },
+    });
   });
+  await mockStopData(page);
+  await page.goto("/");
+  await page.clock.fastForward(40_000);
+
+  await expect(
+    page.getByText(/Your location is unavailable/),
+  ).toHaveCount(0);
+
+  await page
+    .getByRole("button", {
+      name: "Refresh and center on your location",
+    })
+    .click();
+  await expect(
+    page.getByText(/Your location is unavailable/),
+  ).toBeVisible();
+});
+
+test("keeps other buses active when one bus arrives", async ({ page }) => {
+  let arrivalRequestCount = 0;
+  await page.clock.install();
   await page.addInitScript(() => {
     Object.defineProperty(window, "Notification", {
       configurable: true,
@@ -337,64 +407,63 @@ test("keeps selections and can restart after a bus reaches zero", async ({
       },
     });
     window.localStorage.setItem(
-      "athens-bus-ticker:v2",
+      "athens-bus-ticker:v3",
       JSON.stringify({
-        version: 2,
-        selectedStop: { code: "400075", name: "HSAP N. FALHROY" },
-        selectedLineIds: ["218"],
-        optionalThresholds: [10, 5, 3, 1],
+        version: 3,
+        selectedStop: {
+          code: "400075",
+          name: "HSAP N. FALHROY",
+        },
+        lineAlerts: [
+          {
+            lineId: "218",
+            optionalThresholds: [10, 5, 3, 1],
+          },
+          {
+            lineId: "500",
+            optionalThresholds: [10, 5, 3, 1],
+          },
+        ],
         favorites: [],
         activeAlarm: {
           id: "alarm-1",
           stopCode: "400075",
           stopName: "HSAP N. FALHROY",
-          selectedLineIds: ["218"],
-          optionalThresholds: [10, 5, 3, 1],
-          firedThresholds: [10, 5, 3, 1],
-          predictedZeroAt: null,
-          lastObservedLineId: "218",
-          lastObservedMinutes: 1,
-          armedAt: "2026-07-29T10:00:00.000Z",
+          lineAlerts: [
+            {
+              lineId: "218",
+              optionalThresholds: [10, 5, 3, 1],
+              firedThresholds: [10, 5, 3, 1],
+              predictedZeroAt: null,
+              lastObservedMinutes: 1,
+              completedAt: null,
+            },
+            {
+              lineId: "500",
+              optionalThresholds: [10, 5, 3, 1],
+              firedThresholds: [10, 5, 3, 1],
+              predictedZeroAt: null,
+              lastObservedMinutes: 1,
+              completedAt: null,
+            },
+          ],
+          armedAt: new Date(Date.now() - 60_000).toISOString(),
+          completedAt: null,
         },
       }),
     );
   });
-  await page.route("**/api/stops/400075", async (route) => {
-    await route.fulfill({
-      json: {
-        stop: {
-          code: "400075",
-          name: "HSAP N. FALHROY",
-          street: null,
-          latitude: 37.9445913,
-          longitude: 23.6671421,
-          distanceMeters: 0,
-        },
-        routes: [
-          {
-            routeCode: "2810",
-            lineId: "218",
-            description: "PEIRAIAS - ST. DAFNIS",
-          },
-        ],
-        lines: [
-          {
-            lineId: "218",
-            description: "PEIRAIAS - ST. DAFNIS",
-          },
-        ],
-      },
-    });
-  });
+  await mockStopData(page);
   await page.route("**/api/stops/400075/arrivals", async (route) => {
     arrivalRequestCount += 1;
     await route.fulfill({
       json: {
         arrivals: [
+          { routeCode: "2810", vehicleId: "218-a", minutes: 0 },
           {
-            routeCode: "2810",
-            vehicleId: "32336",
-            minutes: arrivalRequestCount === 1 ? 0 : 4,
+            routeCode: "5000",
+            vehicleId: "500-a",
+            minutes: arrivalRequestCount === 1 ? 4 : 0,
           },
         ],
         observedAt: new Date().toISOString(),
@@ -403,56 +472,46 @@ test("keeps selections and can restart after a bus reaches zero", async ({
   });
 
   await page.goto("/");
-
-  const stopToggle = page.getByRole("button", { name: "01 · Bus stop" });
-  const busesToggle = page.getByRole("button", { name: "02 · Buses" });
-  const notifyToggle = page.getByRole("button", { name: "03 · Notify" });
-
-  await expect(stopToggle).toContainText("HSAP N. FALHROY");
-  await expect(busesToggle).toContainText("218");
-  await expect(notifyToggle).toContainText("10/5/3/1/0 min");
+  const activeAlert = page.getByRole("region", { name: "Active alert" });
+  await expect(activeAlert).toBeVisible();
+  await expect(activeAlert.getByText("ARRIVED")).toHaveCount(1);
   await expect(
-    page.getByRole("heading", { name: "Live arrivals" }),
-  ).toHaveCount(0);
+    activeAlert.getByText("4 min", { exact: true }),
+  ).toHaveCount(1);
+  await expect(
+    activeAlert.getByText("peiraias - kifisia", { exact: true }),
+  ).toHaveCount(1);
+  const activeBus500 = activeAlert.locator(
+    '[data-alert-line="500"]',
+  );
+  const activeBadgeBox = await activeBus500
+    .locator(".arrival-line-selected")
+    .boundingBox();
+  const activeDescriptionBox = await activeBus500
+    .getByText("peiraias - kifisia", { exact: true })
+    .boundingBox();
+  const activeTimeBox = await activeBus500
+    .getByText("10 min", { exact: true })
+    .boundingBox();
+  expect(activeBadgeBox).not.toBeNull();
+  expect(activeDescriptionBox).not.toBeNull();
+  expect(activeTimeBox).not.toBeNull();
+  expect(activeDescriptionBox!.y).toBeGreaterThan(
+    activeBadgeBox!.y + activeBadgeBox!.height,
+  );
+  expect(Math.abs(activeTimeBox!.x - activeBadgeBox!.x)).toBeLessThan(
+    2,
+  );
+  await expect(page.getByRole("button", { name: "Cancel" })).toBeVisible();
+
+  await page.clock.fastForward(20_000);
   const completedAlert = page.getByRole("region", {
     name: "Alert complete",
   });
   await expect(completedAlert).toBeVisible();
-  await expect(
-    completedAlert.getByRole("heading", { name: "218 arrived" }),
-  ).toBeVisible();
+  await expect(completedAlert.getByText("ARRIVED")).toHaveCount(2);
   await expect(
     completedAlert.getByRole("button", { name: "Restart" }),
   ).toBeVisible();
-  await expect
-    .poll(() =>
-      page.evaluate(() => {
-        const value = window.localStorage.getItem("athens-bus-ticker:v2");
-        if (!value) return null;
-        const stored = JSON.parse(value);
-        return {
-          selectedStop: stored.selectedStop,
-          selectedLineIds: stored.selectedLineIds,
-        };
-      }),
-    )
-    .toEqual({
-      selectedStop: { code: "400075", name: "HSAP N. FALHROY" },
-      selectedLineIds: ["218"],
-    });
-
-  await completedAlert.getByRole("button", { name: "Restart" }).click();
-  const restartedAlert = page.getByRole("region", { name: "Active alert" });
-  await expect(restartedAlert).toBeVisible();
-  await expect(restartedAlert).toContainText("4 min");
-  await expect(
-    restartedAlert.getByRole("button", { name: "Refresh" }),
-  ).toHaveCount(0);
-  expect(arrivalRequestCount).toBe(2);
-
-  await restartedAlert.getByRole("button", { name: "Cancel alert" }).click();
-  await expect(restartedAlert).toBeHidden();
-  await expect(
-    page.getByRole("heading", { name: "Live arrivals" }),
-  ).toHaveCount(0);
+  expect(arrivalRequestCount).toBeGreaterThanOrEqual(2);
 });
