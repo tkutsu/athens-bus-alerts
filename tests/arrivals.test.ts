@@ -26,7 +26,7 @@ describe("arrivalEntranceTiming", () => {
       expect(timing.delayMs).toBeGreaterThanOrEqual(280);
       expect(timing.delayMs + timing.iconDurationMs).toBeLessThanOrEqual(860);
       expect(timing.delayMs + timing.tagDurationMs).toBeLessThanOrEqual(860);
-      expect(timing.overshootScale).toBeGreaterThan(1);
+      expect(timing.overshootScale).toBeGreaterThanOrEqual(1.22);
     }
   });
 });
