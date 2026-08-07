@@ -1,113 +1,181 @@
-import type {
-  ActiveAlarm,
-  OptionalThreshold,
-} from "@/lib/types";
+import type { LineSubscription, RecentVehicle } from "@/lib/types";
 
 export interface CandidateArrival {
   lineId: string;
+  vehicleKey: string;
   minutes: number;
 }
 
 export interface AlertEvent {
-  kind: "warning" | "zero";
+  kind: "one-minute" | "zero";
   lineId: string;
+  vehicleKey: string;
   minutes: number;
-  threshold: OptionalThreshold | 0;
 }
 
-export interface AlarmEvaluation {
-  alarm: ActiveAlarm;
+export interface SubscriptionEvaluation {
+  subscriptions: LineSubscription[];
   events: AlertEvent[];
 }
 
-/** Advances every configured bus independently from its earliest arrival. */
-export function evaluateAlarm(
-  alarm: ActiveAlarm,
-  arrivals: CandidateArrival[],
-  now = new Date(),
-): AlarmEvaluation {
-  if (alarm.completedAt) {
-    return { alarm, events: [] };
+export const RECENT_VEHICLE_TTL_MS = 15 * 60_000;
+export const MAX_RECENT_VEHICLES = 20;
+export const STALE_PREDICTION_GRACE_MS = 2 * 60_000;
+
+function predictedZeroAt(minutes: number, now: Date): string {
+  return new Date(now.getTime() + minutes * 60_000).toISOString();
+}
+
+function pruneRecentVehicles(
+  recentVehicles: readonly RecentVehicle[],
+  now: Date,
+): RecentVehicle[] {
+  return recentVehicles
+    .filter(
+      (vehicle) =>
+        now.getTime() - new Date(vehicle.completedAt).getTime() <
+        RECENT_VEHICLE_TTL_MS,
+    )
+    .slice(-MAX_RECENT_VEHICLES);
+}
+
+function beginTracking(
+  subscription: LineSubscription,
+  arrival: CandidateArrival | undefined,
+  now: Date,
+  preserveWarning = false,
+): LineSubscription {
+  if (!arrival) {
+    return {
+      ...subscription,
+      trackedVehicleKey: null,
+      firedOneMinute: false,
+      predictedZeroAt: null,
+      lastObservedMinutes: null,
+    };
   }
 
+  return {
+    ...subscription,
+    trackedVehicleKey: arrival.vehicleKey,
+    firedOneMinute: preserveWarning && subscription.firedOneMinute,
+    predictedZeroAt: predictedZeroAt(arrival.minutes, now),
+    lastObservedMinutes: arrival.minutes,
+  };
+}
+
+function completeTrackedVehicle(
+  subscription: LineSubscription,
+  candidates: readonly CandidateArrival[],
+  now: Date,
+): LineSubscription {
+  const completedKey = subscription.trackedVehicleKey;
+  const recentVehicles = completedKey
+    ? [
+        ...subscription.recentVehicles,
+        { key: completedKey, completedAt: now.toISOString() },
+      ].slice(-MAX_RECENT_VEHICLES)
+    : subscription.recentVehicles;
+  const recentKeys = new Set(recentVehicles.map((vehicle) => vehicle.key));
+  const next = candidates.find(
+    (candidate) => !recentKeys.has(candidate.vehicleKey),
+  );
+
+  return beginTracking(
+    { ...subscription, recentVehicles },
+    next,
+    now,
+  );
+}
+
+/** Advances every selected line from its nearest bus to the next one. */
+export function evaluateSubscriptions(
+  subscriptions: readonly LineSubscription[],
+  arrivals: readonly CandidateArrival[],
+  now = new Date(),
+): SubscriptionEvaluation {
   const events: AlertEvent[] = [];
-  const lineAlerts = alarm.lineAlerts.map((lineAlarm) => {
-    if (lineAlarm.completedAt) return lineAlarm;
 
-    const earliest = arrivals
-      .filter((arrival) => arrival.lineId === lineAlarm.lineId)
-      .sort((a, b) => a.minutes - b.minutes)[0];
-    const predictedZeroAt = earliest
-      ? new Date(now.getTime() + earliest.minutes * 60_000).toISOString()
-      : lineAlarm.predictedZeroAt;
+  const nextSubscriptions = subscriptions.map((original) => {
+    let subscription = {
+      ...original,
+      recentVehicles: pruneRecentVehicles(original.recentVehicles, now),
+    };
+    const recentKeys = new Set(
+      subscription.recentVehicles.map((vehicle) => vehicle.key),
+    );
+    const candidates = arrivals
+      .filter(
+        (arrival) =>
+          arrival.lineId === subscription.lineId &&
+          !recentKeys.has(arrival.vehicleKey),
+      )
+      .sort((a, b) => a.minutes - b.minutes);
 
-    if (
-      earliest?.minutes === 0 ||
-      (predictedZeroAt &&
-        new Date(predictedZeroAt).getTime() <= now.getTime())
-    ) {
+    if (!subscription.trackedVehicleKey) {
+      const preserveWarning = subscription.lastObservedMinutes !== null;
+      subscription = beginTracking(
+        subscription,
+        candidates[0],
+        now,
+        preserveWarning,
+      );
+    }
+
+    if (!subscription.trackedVehicleKey) return subscription;
+
+    const tracked = candidates.find(
+      (arrival) => arrival.vehicleKey === subscription.trackedVehicleKey,
+    );
+
+    if (!tracked) {
+      if (!subscription.predictedZeroAt) {
+        return beginTracking(subscription, candidates[0], now);
+      }
+
+      const predictedAt = new Date(subscription.predictedZeroAt).getTime();
+      if (predictedAt > now.getTime()) return subscription;
+
+      const lateness = now.getTime() - predictedAt;
+      if (lateness <= STALE_PREDICTION_GRACE_MS) {
+        events.push({
+          kind: "zero",
+          lineId: subscription.lineId,
+          vehicleKey: subscription.trackedVehicleKey,
+          minutes: 0,
+        });
+      }
+      return completeTrackedVehicle(subscription, candidates, now);
+    }
+
+    subscription = {
+      ...subscription,
+      predictedZeroAt: predictedZeroAt(tracked.minutes, now),
+      lastObservedMinutes: tracked.minutes,
+    };
+
+    if (tracked.minutes === 0) {
       events.push({
         kind: "zero",
-        lineId: lineAlarm.lineId,
+        lineId: subscription.lineId,
+        vehicleKey: tracked.vehicleKey,
         minutes: 0,
-        threshold: 0,
       });
-      return {
-        ...lineAlarm,
-        firedThresholds: [
-          ...new Set([...lineAlarm.firedThresholds, 0 as const]),
-        ],
-        predictedZeroAt: null,
-        lastObservedMinutes: 0,
-        completedAt: now.toISOString(),
-      };
+      return completeTrackedVehicle(subscription, candidates, now);
     }
 
-    if (!earliest) {
-      return { ...lineAlarm, predictedZeroAt };
+    if (tracked.minutes <= 1 && !subscription.firedOneMinute) {
+      events.push({
+        kind: "one-minute",
+        lineId: subscription.lineId,
+        vehicleKey: tracked.vehicleKey,
+        minutes: tracked.minutes,
+      });
+      return { ...subscription, firedOneMinute: true };
     }
 
-    const crossedThresholds = lineAlarm.optionalThresholds.filter(
-      (threshold) =>
-        !lineAlarm.firedThresholds.includes(threshold) &&
-        earliest.minutes <= threshold,
-    );
-    if (crossedThresholds.length === 0) {
-      return {
-        ...lineAlarm,
-        predictedZeroAt,
-        lastObservedMinutes: earliest.minutes,
-      };
-    }
-
-    // Report only the closest crossed warning to avoid a burst when OASA jumps.
-    const threshold = Math.min(...crossedThresholds) as OptionalThreshold;
-    const allCrossed = lineAlarm.optionalThresholds.filter(
-      (candidate) => earliest.minutes <= candidate,
-    );
-    events.push({
-      kind: "warning",
-      lineId: lineAlarm.lineId,
-      minutes: earliest.minutes,
-      threshold,
-    });
-    return {
-      ...lineAlarm,
-      firedThresholds: [
-        ...new Set([...lineAlarm.firedThresholds, ...allCrossed]),
-      ],
-      predictedZeroAt,
-      lastObservedMinutes: earliest.minutes,
-    };
+    return subscription;
   });
 
-  const completed = lineAlerts.every((lineAlarm) => lineAlarm.completedAt);
-  return {
-    alarm: {
-      ...alarm,
-      lineAlerts,
-      completedAt: completed ? now.toISOString() : null,
-    },
-    events,
-  };
+  return { subscriptions: nextSubscriptions, events };
 }

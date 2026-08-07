@@ -24,6 +24,7 @@ html {
 
 body {
   margin: 0;
+  overflow: hidden;
   color: #17201b;
   cursor: default;
   background:
@@ -119,76 +120,8 @@ textarea:disabled {
     @apply block w-full px-2 py-1.5 text-left text-xs hover:bg-ink/5;
   }
 
-  .time-chip {
-    @apply inline-flex min-h-7 items-center rounded-full border border-ink/20 px-2.5 py-1 font-mono text-xs font-medium text-ink/55 transition;
-  }
-
-  .time-chip:not(:disabled):hover {
-    @apply border-ink;
-  }
-
-  .time-chip-selected {
-    @apply inline-flex min-h-7 items-center rounded-full border border-signal/50 bg-signal/10 px-2.5 py-1 font-mono text-xs font-semibold text-signal;
-  }
-
-  button.time-chip-selected:not(:disabled):hover {
-    @apply border-ink;
-  }
-
-  .arrival-line {
-    @apply inline-flex min-h-8 items-center justify-center border border-ink/25 px-2 font-mono text-sm font-bold;
-  }
-
-  .arrival-line-selected {
-    @apply inline-flex min-h-8 items-center justify-center bg-signal px-2 font-mono text-sm font-bold text-white;
-  }
-
   .empty-copy {
     @apply border-y border-dashed border-ink/20 py-5 text-sm text-ink/45;
-  }
-
-  .workflow-tabs {
-    @apply flex gap-2 pb-4;
-  }
-
-  .workflow-tab {
-    @apply flex min-h-11 items-center justify-between gap-2 border border-ink/20 bg-white/30 px-3 text-left text-xs font-semibold text-ink/60 transition;
-  }
-
-  .workflow-tab:not(:disabled):hover {
-    @apply border-ink bg-white/50;
-  }
-
-  .workflow-tab[aria-selected="true"] {
-    @apply border-ink/35 bg-white/55 font-extrabold text-ink;
-  }
-
-  .workflow-notify-active {
-    @apply border-signal bg-signal text-white;
-  }
-
-  .workflow-notify-active:not(:disabled):hover {
-    @apply border-ink bg-signal;
-  }
-
-  .workflow-notify-active:disabled {
-    opacity: 1;
-  }
-
-  .workflow-panel {
-    @apply pt-6;
-  }
-
-  .alert-card {
-    @apply border border-ink/20 bg-white/25 p-4;
-  }
-
-  .alert-card-active {
-    @apply border-signal/35 bg-signal/8;
-  }
-
-  .time-chip-muted {
-    @apply opacity-35;
   }
 
 }
@@ -219,15 +152,6 @@ textarea:disabled {
   box-shadow: 0 20px 60px rgb(23 32 27 / 0.28);
 }
 
-.pulse-dot {
-  animation: pulse-dot 1.8s ease-out infinite;
-}
-
-.notify-bell-ready {
-  transform-origin: 50% 10%;
-  animation: notify-bell-ring 1.8s ease-in-out infinite;
-}
-
 .small-action {
   transition: transform 120ms ease-out;
 }
@@ -241,38 +165,399 @@ textarea:disabled {
   animation: toast-countdown 5s linear forwards;
 }
 
-@keyframes pulse-dot {
-  0% {
-    box-shadow: 0 0 0 0 rgb(229 86 47 / 0.5);
+.selected-stop-row {
+  position: relative;
+  display: flex;
+  width: 100%;
+  min-height: 4.5rem;
+  align-items: center;
+  gap: 0.75rem;
+  border: 1px solid rgb(23 32 27 / 0.2);
+  background: rgb(255 255 255 / 0.34);
+  padding: 0.75rem 1rem;
+  color: #17201b;
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease;
+}
+
+.selected-stop-disclosure {
+  flex: 0 0 auto;
+}
+
+.selected-stop-panel {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    grid-template-rows 280ms cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 180ms ease,
+    visibility 0s linear 280ms;
+}
+
+.selected-stop-panel-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.selected-stop-disclosure-open .selected-stop-panel {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  visibility: visible;
+  transition-delay: 0s;
+}
+
+.selected-stop-disclosure .stop-map-shell {
+  margin-top: -1px;
+}
+
+.selected-stop-disclosure-open .selected-stop-row {
+  background: rgb(255 255 255 / 0.5);
+}
+
+.selected-stop-marker {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  width: 1.5rem;
+  height: 1.5rem;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 2px solid #17201b;
+  border-radius: 999px;
+  background: #f4f2ec;
+  box-shadow: 0 0 0 3px #f4f2ec;
+}
+
+.selected-stop-marker::after {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 999px;
+  background: #e5562f;
+  content: "";
+}
+
+.selected-stop-row[aria-expanded="false"]::after {
+  position: absolute;
+  top: calc(50% + 0.75rem);
+  bottom: -3px;
+  left: calc(1.75rem - 1px);
+  z-index: 1;
+  width: 2px;
+  background: #e5562f;
+  transform-origin: top;
+  /* Continue the map collapse into the short connector before drawing the rail. */
+  animation: transit-line-enter 100ms cubic-bezier(0.22, 1, 0.36, 1) 280ms both;
+  content: "";
+}
+
+.selected-stop-row:hover {
+  border-color: rgb(23 32 27 / 0.55);
+  background: rgb(255 255 255 / 0.5);
+}
+
+.arrival-timeline-section {
+  --timeline-axis: 1.8125rem;
+
+  position: relative;
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+}
+
+.arrival-timeline {
+  position: relative;
+  min-height: 0;
+  flex: 1 1 auto;
+  border-bottom: 1px solid rgb(23 32 27 / 0.12);
+}
+
+.arrival-timeline-rail {
+  position: absolute;
+  top: -3px;
+  bottom: 3.25rem;
+  left: calc(var(--timeline-axis) - 1px);
+  z-index: 1;
+  width: 2px;
+  background: #e5562f;
+  transform-origin: top;
+  /* Begin exactly when the 100ms stop connector finishes drawing. */
+  animation: transit-line-enter 480ms cubic-bezier(0.22, 1, 0.36, 1) 380ms both;
+}
+
+.arrival-timeline-group {
+  position: absolute;
+  z-index: 2;
+  right: 0;
+  left: 0;
+  top: clamp(1.25rem, var(--timeline-position), calc(100% - 4.5rem));
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  perspective: 32rem;
+  transform: translateY(-50%);
+  transition: top 600ms linear;
+}
+
+.arrival-timeline-group-forward {
+  transition-duration: 880ms;
+  transition-timing-function: cubic-bezier(0.5, 0, 0.9, 1);
+}
+
+.arrival-timeline-group-backward {
+  transition: none;
+  animation: bus-group-backtrack 960ms cubic-bezier(0.42, 0, 0.58, 1) both;
+}
+
+.arrival-timeline-group-static {
+  top: calc(100% - 3.25rem);
+  transition: none;
+}
+
+.arrival-timeline-row {
+  position: relative;
+  display: flex;
+  min-height: 2.25rem;
+  align-items: center;
+  padding-left: 4.25rem;
+}
+
+.arrival-timeline-bus-marker {
+  position: absolute;
+  top: 50%;
+  left: calc(var(--timeline-axis) - 1rem);
+  display: grid;
+  width: 2rem;
+  height: 2rem;
+  aspect-ratio: 1;
+  flex: 0 0 auto;
+  overflow: hidden;
+  isolation: isolate;
+  place-items: center;
+  border: 2px solid #f4f2ec;
+  border-radius: 999px;
+  background: #b7bbb9;
+  padding: 0;
+  color: white;
+  box-shadow: 0 1px 4px rgb(23 32 27 / 0.18);
+  transform: translateY(-50%) translateZ(0);
+  transform-style: preserve-3d;
+  transition: box-shadow 140ms ease;
+}
+
+/* Reveal the selected color upward without touching the marker's own transform. */
+.arrival-timeline-bus-marker::before {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: #e5562f;
+  content: "";
+  transform: scaleY(0);
+  transform-origin: 50% 100%;
+}
+
+/* Pop each icon on its stable stagger while the continuous line is drawing. */
+.arrival-timeline-section-entering .arrival-timeline-bus-marker {
+  animation: bus-pop-enter var(--arrival-icon-duration) cubic-bezier(0.2, 0.8, 0.2, 1)
+    var(--arrival-enter-delay) both;
+}
+
+.arrival-timeline-row:has(
+    .arrival-timeline-bus-marker:hover,
+    .arrival-timeline-bus-marker:focus-visible,
+    .arrival-bus:hover,
+    .arrival-bus:focus-visible
+  )
+  .arrival-timeline-bus-marker {
+  /* Keep the shared hover elevation subtle around the compact bus icon. */
+  box-shadow: 0 2px 5px rgb(23 32 27 / 0.22);
+}
+
+.arrival-timeline-bus-marker-selected {
+  background: #b7bbb9;
+}
+
+/* Fill a newly selected marker from its bottom edge to its top. */
+.arrival-timeline-bus-marker-selected::before {
+  animation: bus-select-fill 240ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.arrival-timeline-bus-icon {
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: 1.25rem;
+  height: 1.25rem;
+  flex: none;
+}
+
+.arrival-timeline-row-flip .arrival-timeline-bus-marker {
+  animation: bus-jump-flip 960ms cubic-bezier(0.42, 0, 0.58, 1) both;
+}
+
+.arrival-bus {
+  display: inline-flex;
+  min-height: 2.25rem;
+  align-items: center;
+  gap: 0.55rem;
+  border: 1px solid rgb(23 32 27 / 0.25);
+  background: rgb(255 255 255 / 0.72);
+  padding: 0.35rem 0.55rem;
+  color: #17201b;
+  box-shadow: 0 2px 7px rgb(23 32 27 / 0.07);
+  transition:
+    opacity 160ms ease,
+    transform 160ms ease,
+    border-color 160ms ease,
+    background-color 160ms ease,
+    box-shadow 140ms ease;
+}
+
+/* Fade the tag from the same staggered start used by its bus icon. */
+.arrival-timeline-section-entering .arrival-bus {
+  animation: arrival-tag-enter var(--arrival-tag-duration) ease-out
+    var(--arrival-enter-delay) both;
+}
+
+.arrival-bus:hover,
+.arrival-bus:focus-visible {
+  z-index: 4;
+  opacity: 1;
+  transform: translateY(-1px);
+}
+
+.arrival-timeline-row:has(
+    .arrival-timeline-bus-marker:hover,
+    .arrival-timeline-bus-marker:focus-visible,
+    .arrival-bus:hover,
+    .arrival-bus:focus-visible
+  )
+  .arrival-bus {
+  /* Match the icon with a restrained, slightly wider tag shadow. */
+  box-shadow: 0 3px 8px rgb(23 32 27 / 0.12);
+}
+
+.arrival-bus-selected {
+  z-index: 3;
+  border: 1px solid #e5562f;
+  background: #e5562f;
+  color: white;
+  box-shadow: 0 5px 14px rgb(229 86 47 / 0.22);
+  transform: scale(1.06);
+}
+
+.arrival-bus-selected:hover,
+.arrival-bus-selected:focus-visible {
+  transform: translateY(-1px) scale(1.06);
+}
+
+.arrival-bus-muted {
+  border-color: rgb(23 32 27 / 0.28);
+  background: rgb(255 255 255 / 0.34);
+  color: rgb(23 32 27 / 0.46);
+  box-shadow: none;
+}
+
+.arrival-bus-code,
+.arrival-bus-eta {
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.arrival-bus-eta {
+  opacity: 0.7;
+}
+
+.urgent-toast {
+  box-shadow:
+    0 14px 36px rgb(23 32 27 / 0.3),
+    0 0 0 4px rgb(229 86 47 / 0.16);
+  animation: urgent-toast-in 240ms ease-out both;
+}
+
+/* Keep tags calm while the paired icon supplies the bounce. */
+@keyframes arrival-tag-enter {
+  from {
+    opacity: 0;
   }
-  70% {
-    box-shadow: 0 0 0 10px rgb(229 86 47 / 0);
-  }
-  100% {
-    box-shadow: 0 0 0 0 rgb(229 86 47 / 0);
+
+  to {
+    opacity: 1;
   }
 }
 
-@keyframes notify-bell-ring {
-  0%,
-  62%,
-  100% {
-    transform: rotate(0);
+/* Give each icon a compact overshoot and settle without changing its position. */
+@keyframes bus-pop-enter {
+  0% {
+    opacity: 0;
+    transform: translateY(-50%) translateZ(0) scale(0.55);
   }
-  68% {
-    transform: rotate(-14deg);
+
+  58% {
+    opacity: 1;
+    transform: translateY(-50%) translateZ(0) scale(var(--arrival-pop-scale));
   }
-  74% {
-    transform: rotate(12deg);
-  }
+
   80% {
-    transform: rotate(-8deg);
+    opacity: 1;
+    transform: translateY(-50%) translateZ(0) scale(0.97);
   }
-  86% {
-    transform: rotate(6deg);
+
+  100% {
+    opacity: 1;
+    transform: translateY(-50%) translateZ(0) scale(1);
   }
-  92% {
-    transform: rotate(0);
+}
+
+/* Paint selection vertically while preserving the circular marker boundary. */
+@keyframes bus-select-fill {
+  from {
+    transform: scaleY(0);
+  }
+
+  to {
+    transform: scaleY(1);
+  }
+}
+
+/* Reveals both line segments without changing layout or bus positions. */
+@keyframes transit-line-enter {
+  from {
+    transform: scaleY(0);
+  }
+
+  to {
+    transform: scaleY(1);
+  }
+}
+
+@keyframes bus-jump-flip {
+  0% {
+    transform: translateY(-50%) rotateX(0deg);
+  }
+
+  100% {
+    transform: translateY(-50%) rotateX(-360deg);
+  }
+}
+
+@keyframes bus-group-backtrack {
+  from {
+    transform: translateY(-50%) translateY(var(--backtrack-offset));
+  }
+
+  to {
+    transform: translateY(-50%) translateY(0);
+  }
+}
+
+@keyframes urgent-toast-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 10px) scale(0.97);
   }
 }
 
@@ -287,17 +572,40 @@ textarea:disabled {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .notify-bell-ready,
-  .pulse-dot {
-    animation: none;
-  }
-
   .small-action {
     transition: none;
   }
 
   .small-action:hover {
     transform: none;
+  }
+
+  .arrival-timeline-group,
+  .arrival-bus,
+  .selected-stop-row,
+  .selected-stop-panel {
+    transition: none;
+  }
+
+  .arrival-bus,
+  .arrival-timeline-rail,
+  .arrival-timeline-section-entering .arrival-timeline-bus-marker,
+  .arrival-timeline-section-entering .arrival-bus,
+  .arrival-timeline-group-backward,
+  .arrival-timeline-row-flip .arrival-timeline-bus-marker,
+  .urgent-toast {
+    animation: none;
+  }
+
+  /* Keep the connector visible without motion for reduced-motion users. */
+  .selected-stop-row[aria-expanded="false"]::after {
+    animation: none;
+  }
+
+  /* Show the completed selected fill immediately when motion is reduced. */
+  .arrival-timeline-bus-marker-selected::before {
+    animation: none;
+    transform: scaleY(1);
   }
 }
 

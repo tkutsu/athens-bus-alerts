@@ -1,7 +1,3 @@
-export const OPTIONAL_THRESHOLDS = [10, 5, 3, 1] as const;
-
-export type OptionalThreshold = (typeof OPTIONAL_THRESHOLDS)[number];
-
 export interface Coordinates {
   latitude: number;
   longitude: number;
@@ -31,43 +27,35 @@ export interface Arrival {
   minutes: number;
 }
 
-export interface LineAlertConfig {
+export interface RecentVehicle {
+  key: string;
+  completedAt: string;
+}
+
+export interface LineSubscription {
   lineId: string;
-  optionalThresholds: OptionalThreshold[];
+  trackedVehicleKey: string | null;
+  firedOneMinute: boolean;
+  predictedZeroAt: string | null;
+  lastObservedMinutes: number | null;
+  recentVehicles: RecentVehicle[];
 }
 
 export interface Favorite {
   id: string;
   name: string;
   stop: Pick<StopSummary, "code" | "name">;
-  lineAlerts: LineAlertConfig[];
+  lineIds: string[];
   createdAt: string;
   updatedAt: string;
   lastEnabledAt: string | null;
 }
 
-export interface ActiveLineAlert extends LineAlertConfig {
-  firedThresholds: Array<OptionalThreshold | 0>;
-  predictedZeroAt: string | null;
-  lastObservedMinutes: number | null;
-  completedAt: string | null;
-}
-
-export interface ActiveAlarm {
-  id: string;
-  stopCode: string;
-  stopName: string;
-  lineAlerts: ActiveLineAlert[];
-  armedAt: string;
-  completedAt: string | null;
-}
-
 export interface StoredState {
-  version: 3;
+  version: 4;
   selectedStop: Pick<StopSummary, "code" | "name"> | null;
-  lineAlerts: LineAlertConfig[];
+  subscriptions: LineSubscription[];
   favorites: Favorite[];
-  activeAlarm: ActiveAlarm | null;
 }
 
 export interface ApiErrorPayload {
