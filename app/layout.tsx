@@ -2,14 +2,14 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Athens Bus Notifications",
+  title: "Athens Bus Tracker",
   description:
     "A compact personal ticker for nearby OASA stops and live arrivals.",
-  applicationName: "Athens Bus Notifications",
+  applicationName: "Athens Bus Tracker",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "Bus Notifications",
+    title: "Bus Tracker",
   },
   icons: {
     icon: [
