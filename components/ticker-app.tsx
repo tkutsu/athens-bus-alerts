@@ -190,7 +190,7 @@ function Toast({
   return (
     <div
       aria-live={isError || isUrgent ? "assertive" : "polite"}
-      className={`pointer-events-none fixed bottom-20 left-1/2 z-[1000] flex w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 items-start gap-3 overflow-hidden px-4 py-3 text-sm shadow-lg ${
+      className={`pointer-events-none fixed top-4 left-1/2 z-[1000] flex w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 items-start gap-3 overflow-hidden px-4 py-3 text-sm shadow-lg ${
         isError
           ? "border border-red-700/20 bg-[var(--toast-error)] text-[var(--toast-error-ink)]"
           : isUrgent
