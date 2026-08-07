@@ -1,33 +1,48 @@
 import { expect, test, type Page } from "@playwright/test";
 
-async function mockStopData(page: Page) {
+const STOP = {
+  code: "400075",
+  name: "HSAP N. FALHROY",
+  street: null,
+  latitude: 37.9445913,
+  longitude: 23.6671421,
+  distanceMeters: 0,
+};
+
+interface MockArrival {
+  routeCode: string;
+  vehicleId: string;
+  minutes: number;
+}
+
+async function mockStopData(
+  page: Page,
+  arrivalSnapshots:
+    | MockArrival[]
+    | ((requestCount: number) => MockArrival[]) = [
+    { routeCode: "2810", vehicleId: "218-a", minutes: 4 },
+    { routeCode: "2810", vehicleId: "218-b", minutes: 12 },
+    { routeCode: "2810", vehicleId: "218-c", minutes: 23 },
+    { routeCode: "5000", vehicleId: "500-a", minutes: 6 },
+    { routeCode: "5000", vehicleId: "500-b", minutes: 19 },
+  ],
+  observedAtStepMs = 0,
+) {
+  let arrivalRequestCount = 0;
+  const firstObservedAt = Date.now();
   await page.route("**/data/stops.json", async (route) => {
     await route.fulfill({
       json: {
-        generatedAt: "2026-07-29T09:56:48.228Z",
+        generatedAt: "2026-08-07T09:56:48.228Z",
         source: "test",
-        stops: [
-          {
-            code: "400075",
-            name: "HSAP N. FALHROY",
-            latitude: 37.9445913,
-            longitude: 23.6671421,
-          },
-        ],
+        stops: [STOP],
       },
     });
   });
   await page.route("**/api/stops/400075", async (route) => {
     await route.fulfill({
       json: {
-        stop: {
-          code: "400075",
-          name: "HSAP N. FALHROY",
-          street: null,
-          latitude: 37.9445913,
-          longitude: 23.6671421,
-          distanceMeters: 0,
-        },
+        stop: STOP,
         routes: [
           {
             routeCode: "2810",
@@ -41,26 +56,37 @@ async function mockStopData(page: Page) {
           },
         ],
         lines: [
-          {
-            lineId: "218",
-            description: "PEIRAIAS - ST. DAFNIS",
-          },
-          {
-            lineId: "500",
-            description: "PEIRAIAS - KIFISIA",
-          },
+          { lineId: "218", description: "PEIRAIAS - ST. DAFNIS" },
+          { lineId: "500", description: "PEIRAIAS - KIFISIA" },
         ],
       },
     });
   });
   await page.route("**/api/stops/400075/arrivals", async (route) => {
+    arrivalRequestCount += 1;
+    const arrivals =
+      typeof arrivalSnapshots === "function"
+        ? arrivalSnapshots(arrivalRequestCount)
+        : arrivalSnapshots;
     await route.fulfill({
       json: {
-        arrivals: [
-          { routeCode: "2810", vehicleId: "218-a", minutes: 4 },
-          { routeCode: "5000", vehicleId: "500-a", minutes: 6 },
-        ],
-        observedAt: new Date().toISOString(),
+        arrivals,
+        observedAt: new Date(
+          firstObservedAt + (arrivalRequestCount - 1) * observedAtStepMs,
+        ).toISOString(),
+      },
+    });
+  });
+  return { arrivalRequestCount: () => arrivalRequestCount };
+}
+
+async function installNotificationMock(page: Page) {
+  await page.addInitScript(() => {
+    Object.defineProperty(window, "Notification", {
+      configurable: true,
+      value: class {
+        static permission = "granted";
+        static requestPermission = async () => "granted";
       },
     });
   });
@@ -69,449 +95,632 @@ async function mockStopData(page: Page) {
 test.beforeEach(async ({ context }) => {
   await context.grantPermissions(["geolocation"]);
   await context.setGeolocation({
-    latitude: 37.9445913,
-    longitude: 23.6671421,
+    latitude: STOP.latitude,
+    longitude: STOP.longitude,
   });
 });
 
-test("uses the subtitle as gated tabs and saves per-bus alert times", async ({
+test("uses one progressive timeline with independent multi-line toggles", async ({
   page,
 }) => {
-  await page.addInitScript(() => {
-    Object.defineProperty(window, "Notification", {
-      configurable: true,
-      value: class {
-        static permission = "granted";
-        static requestPermission = async () => "granted";
-      },
-    });
-  });
-  await mockStopData(page);
+  await installNotificationMock(page);
+  const requests = await mockStopData(page);
   await page.goto("/");
 
   await expect(
-    page.getByRole("heading", { name: "Athens Bus Notifications" }),
+    page.getByRole("heading", { name: "Athens Bus Tracker" }),
   ).toBeVisible();
-  await expect(
-    page.getByText("Pick stop · Pick bus · Get notified"),
-  ).toHaveCount(0);
-  await expect(page.getByRole("navigation")).toHaveCSS(
-    "border-bottom-width",
-    "0px",
-  );
-  await expect(page.locator("footer")).toHaveCSS(
-    "border-top-width",
-    "0px",
-  );
-
-  const stopTab = page.getByRole("tab", { name: "Pick Stop" });
-  const busTab = page.getByRole("tab", { name: "Pick Bus" });
-  const notifyButton = page.getByRole("button", {
-    name: "Notify",
-    exact: true,
-  });
-  const favoritesButton = page
-    .locator("header")
-    .getByRole("button", {
-      name: "Favorites",
-      exact: true,
-    });
-  await expect(favoritesButton).toContainText("Favorites");
-  await expect(favoritesButton).toHaveCSS("align-items", "center");
-  await expect(favoritesButton.locator("svg")).toHaveCSS(
-    "width",
-    "16px",
-  );
-  await expect(favoritesButton.locator("svg")).toHaveCSS(
-    "height",
-    "16px",
-  );
-  await expect(favoritesButton.locator("svg")).toHaveCSS(
-    "translate",
-    "0px -1px",
-  );
-  await expect(stopTab).toHaveAttribute("aria-selected", "true");
-  await expect(busTab).toBeDisabled();
-  await expect(notifyButton).toBeDisabled();
-  await expect(stopTab).not.toHaveCSS(
-    "background-color",
-    "rgb(23, 32, 27)",
-  );
-  await expect(notifyButton.locator("svg")).toHaveCSS(
-    "animation-name",
-    "none",
-  );
-  const disabledBusBorder = await busTab.evaluate(
-    (element) => getComputedStyle(element).borderColor,
-  );
-  await busTab.hover({ force: true });
-  await expect(busTab).toHaveCSS("border-color", disabledBusBorder);
+  await expect(page).toHaveTitle("Athens Bus Tracker");
+  await expect(page.getByRole("tab")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Notify" })).toHaveCount(0);
   await expect(page.getByLabel("Map of OASA bus stops")).toBeVisible();
+
+  // Unselected map stops use the original blue center and white border.
+  const mapStopMarker = page.locator(
+    ".leaflet-overlay-pane path.leaflet-interactive",
+  );
+  await expect(mapStopMarker).toHaveCount(1);
+  await expect(mapStopMarker).toHaveAttribute("stroke", "#ffffff");
+  await expect(mapStopMarker).toHaveAttribute("stroke-opacity", "1");
+  await expect(mapStopMarker).toHaveAttribute("fill", "#2563eb");
+  await expect(mapStopMarker).toHaveAttribute("fill-opacity", "0.95");
 
   const stopPicker = page.getByRole("combobox", {
     name: "Search and choose a stop",
   });
   await stopPicker.click();
-  await page
-    .getByRole("option", { name: /1\. hsap n\. falhroy/ })
-    .click();
+  await page.getByRole("option", { name: /hsap n\. falhroy/i }).click();
 
-  const selectedStopTab = page.getByRole("tab", {
-    name: "hsap n. falhroy",
-    exact: true,
-  });
-  await expect(selectedStopTab).toBeVisible();
-  await expect(page.getByRole("tab", { name: /Pick Stop/ })).toHaveCount(0);
-  await expect(busTab).toBeEnabled();
-  await expect(notifyButton.locator("svg")).toHaveCSS(
-    "animation-name",
-    "none",
-  );
-  await expect(page.getByLabel("Map of OASA bus stops")).toBeVisible();
-
-  await busTab.hover();
-  await expect(busTab).toHaveCSS("border-color", "rgb(23, 32, 27)");
-  await busTab.click();
   await expect(page.getByLabel("Map of OASA bus stops")).toBeHidden();
+  await expect(page.getByLabel("Bus arrivals")).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "218: 10 min" }),
+    page.getByText("Tap a bus to track its line.", { exact: true }),
   ).toHaveCount(0);
-  await expect(
-    page.getByRole("button", { name: "500: 10 min" }),
-  ).toHaveCount(0);
-  const bus218Button = page.getByRole("button", { name: /^218 / });
-  await bus218Button.click();
-  const bus218Ten = page.getByRole("button", {
-    name: "218: 10 min",
-  });
-  const bus218Three = page.getByRole("button", {
-    name: "218: 3 min",
-  });
-  const bus218One = page.getByRole("button", {
-    name: "218: 1 min",
-  });
-  await expect(bus218Ten).toBeVisible();
-  expect(
-    await bus218Ten.evaluate((element) =>
-      Number.parseFloat(getComputedStyle(element).borderRadius),
-    ),
-  ).toBeGreaterThan(13);
-  await expect(bus218Ten).toHaveCSS("font-size", "12px");
-  await expect(bus218Ten).toHaveCSS("min-height", "28px");
-  const busBadgeBox = await bus218Button
-    .locator(".arrival-line-selected")
-    .boundingBox();
-  const busDescriptionBox = await bus218Button
-    .getByText("peiraias - st. dafnis", { exact: true })
-    .boundingBox();
-  expect(busBadgeBox).not.toBeNull();
-  expect(busDescriptionBox).not.toBeNull();
-  expect(busDescriptionBox!.y).toBeGreaterThan(
-    busBadgeBox!.y + busBadgeBox!.height,
-  );
-  await expect(notifyButton.locator("svg")).toHaveCSS(
-    "animation-name",
-    "notify-bell-ring",
-  );
-  await bus218Three.click();
-  await bus218One.click();
-  await expect(notifyButton.locator("svg")).toHaveCSS(
-    "animation-name",
-    "none",
-  );
-  await bus218Three.click();
-  await bus218One.click();
-  await expect(
-    page.getByRole("button", { name: "500: 10 min" }),
-  ).toHaveCount(0);
-  await page.getByRole("button", { name: /^500 / }).click();
-  const bus500Ten = page.getByRole("button", {
-    name: "500: 10 min",
-  });
-  const bus500Three = page.getByRole("button", {
-    name: "500: 3 min",
-  });
-  const bus500One = page.getByRole("button", {
-    name: "500: 1 min",
-  });
-  const selectedBusTab = page.getByRole("tab", {
-    name: "218 500",
-    exact: true,
-  });
-  await expect(selectedBusTab).toHaveAttribute("aria-selected", "true");
-  await expect(notifyButton).toBeEnabled();
-  await expect(notifyButton.locator("svg")).toHaveCSS(
-    "animation-name",
-    "notify-bell-ring",
-  );
-  await expect(bus218Ten).toHaveAttribute("aria-pressed", "false");
-  await expect(bus500Ten).toHaveAttribute("aria-pressed", "false");
-  await expect(bus218Three).toHaveAttribute("aria-pressed", "true");
-  await expect(bus218One).toHaveAttribute("aria-pressed", "true");
-  await expect(bus500Three).toHaveAttribute("aria-pressed", "true");
-  await expect(bus500One).toHaveAttribute("aria-pressed", "true");
-  await bus218Ten.click();
-  await expect(bus218Ten).toHaveAttribute("aria-pressed", "true");
-  await expect(bus500Ten).toHaveAttribute("aria-pressed", "false");
-  await expect(page.getByText("0 min · always")).toHaveCount(0);
-
-  await expect(
-    page.getByRole("button", { name: "Save as favorite" }),
-  ).toHaveCount(0);
-  await favoritesButton.click();
-  const favoritesDialog = page.getByRole("dialog", {
-    name: "Favorites",
-  });
-  await expect(favoritesDialog).toBeVisible();
-  await expect(
-    favoritesDialog.getByText("No favorites saved yet."),
-  ).toBeVisible();
-  await expect(
-    favoritesDialog.getByText(
-      "You can save a new favorite when you reach the Notify Me tab.",
-    ),
-  ).toBeVisible();
-  const favoriteName = favoritesDialog.getByPlaceholder("Favorite name");
-  await favoriteName.fill("Home");
-  await favoritesDialog.getByRole("button", { name: "Save" }).click();
-  await expect(favoritesDialog).toBeHidden();
-  await expect(page.getByText('Saved "Home".')).toBeVisible();
-  const toast = page.getByRole("status");
-  await expect(toast).toHaveCSS("bottom", "80px");
-  await expect(toast).not.toHaveCSS(
-    "background-color",
-    "rgb(23, 32, 27)",
-  );
-  await expect(toast.locator(".toast-countdown")).toHaveCSS(
-    "animation-duration",
-    "5s",
-  );
-
-  await expect(favoritesButton).toBeVisible();
-  await favoritesButton.click();
-  await expect(favoritesDialog).toBeVisible();
-  await expect(
-    favoritesDialog.getByRole("button", {
-      name: /Home hsap n\. falhroy · 218 10\/3\/1 · 500 3\/1/,
+  await expect(page.getByText("15+", { exact: true })).toHaveCount(0);
+  await expect(page.locator(".arrival-timeline-bus-icon")).toHaveCount(5);
+  // Every icon/tag pair receives a varied schedule that ends with the line draw.
+  const entranceRows = page.locator(".arrival-timeline-row");
+  const entranceTimings = await entranceRows.evaluateAll((rows) =>
+    rows.map((row) => {
+      const style = getComputedStyle(row);
+      return {
+        delay: Number.parseFloat(
+          style.getPropertyValue("--arrival-enter-delay"),
+        ),
+        iconDuration: Number.parseFloat(
+          style.getPropertyValue("--arrival-icon-duration"),
+        ),
+        overshoot: Number.parseFloat(
+          style.getPropertyValue("--arrival-pop-scale"),
+        ),
+        tagDuration: Number.parseFloat(
+          style.getPropertyValue("--arrival-tag-duration"),
+        ),
+      };
     }),
-  ).toBeVisible();
-  await favoritesDialog
-    .getByRole("button", { name: "Close favorites" })
-    .click();
-  await expect(favoritesDialog).toBeHidden();
-
-  await notifyButton.click();
-  await expect(
-    page.getByRole("region", { name: "Active alert" }),
-  ).toBeVisible();
-  const activeAlert = page.getByRole("region", {
-    name: "Active alert",
-  });
-  await expect(activeAlert.locator(".pulse-dot")).toBeVisible();
-  await expect(page.locator("header .pulse-dot")).toHaveCount(0);
-  await expect(
-    activeAlert.getByText("hsap n. falhroy", { exact: true }),
-  ).toHaveCount(0);
-  const cancelButton = page.getByRole("button", { name: "Cancel" });
-  await expect(cancelButton).toBeEnabled();
-  await cancelButton.hover();
-  await expect(cancelButton).toHaveCSS(
-    "border-color",
-    "rgb(23, 32, 27)",
   );
-  await cancelButton.click();
+  expect(new Set(entranceTimings.map((timing) => timing.delay)).size).toBeGreaterThan(
+    1,
+  );
+  expect(
+    new Set(entranceTimings.map((timing) => timing.iconDuration)).size,
+  ).toBeGreaterThan(1);
+  for (const timing of entranceTimings) {
+    expect(timing.delay).toBeGreaterThanOrEqual(280);
+    expect(timing.delay + timing.iconDuration).toBeLessThanOrEqual(860);
+    expect(timing.delay + timing.tagDuration).toBeLessThanOrEqual(860);
+    expect(timing.overshoot).toBeGreaterThan(1);
+  }
+  await expect(entranceRows.first().locator(".arrival-timeline-bus-marker")).toHaveCSS(
+    "animation-name",
+    "bus-pop-enter",
+  );
+  await expect(entranceRows.first().locator(".arrival-bus")).toHaveCSS(
+    "animation-name",
+    "arrival-tag-enter",
+  );
+  const endpointGroup = page
+    .getByRole("button", {
+      name: /Enable notifications for line 218, 23 minutes away/,
+    })
+    .locator("xpath=../..");
+  await expect(endpointGroup.locator(".arrival-bus")).toHaveCount(2);
+  await expect(endpointGroup.locator(".arrival-timeline-bus-marker")).toHaveCount(
+    2,
+  );
+  await expect(endpointGroup.locator(".arrival-timeline-bus-marker").first()).toHaveCSS(
+    "background-color",
+    "rgb(183, 187, 185)",
+  );
+  await expect(endpointGroup).toHaveCSS(
+    "--timeline-position",
+    "100%",
+  );
+  await expect(page.locator(".arrival-timeline-rail")).toHaveCSS(
+    "background-color",
+    "rgb(229, 86, 47)",
+  );
+  // The rail draws from the selected stop toward the cutoff after map mode.
+  await expect(page.locator(".arrival-timeline-rail")).toHaveCSS(
+    "animation-name",
+    "transit-line-enter",
+  );
+  await expect(page.locator(".arrival-timeline-rail")).toHaveCSS(
+    "animation-duration",
+    "0.48s",
+  );
+  await expect(page.locator(".arrival-timeline-rail")).toHaveCSS(
+    "animation-delay",
+    "0.38s",
+  );
+  const stopMarker = page.locator(".selected-stop-marker");
+  await expect(stopMarker).toBeVisible();
+  const nearBusBox = await page
+    .getByRole("button", {
+      name: /Enable notifications for line 218, 4 minutes away/,
+    })
+    .boundingBox();
+  const farBusBox = await page
+    .getByRole("button", {
+      name: /Enable notifications for line 218, 12 minutes away/,
+    })
+    .boundingBox();
+  expect(nearBusBox).not.toBeNull();
+  expect(farBusBox).not.toBeNull();
+  expect(nearBusBox!.y).toBeLessThan(farBusBox!.y);
+  await expect(page.getByText(/Refresh in/i)).toHaveCount(0);
+  await expect(page.getByRole("timer")).toHaveCount(0);
+  // Geometry assertions use the fully drawn rail rather than an intermediate scale.
+  await page.locator(".arrival-timeline-rail").evaluate(async (element) => {
+    await Promise.all(element.getAnimations().map((animation) => animation.finished));
+  });
+  const railBox = await page.locator(".arrival-timeline-rail").boundingBox();
+  expect(railBox).not.toBeNull();
+  const endpointGroupBox = await endpointGroup.boundingBox();
+  expect(endpointGroupBox).not.toBeNull();
+  expect(
+    Math.abs(
+      endpointGroupBox!.y + endpointGroupBox!.height / 2 -
+        (railBox!.y + railBox!.height),
+    ),
+  ).toBeLessThan(1);
+  const stopMarkerBox = await stopMarker.boundingBox();
+  expect(stopMarkerBox).not.toBeNull();
+  expect(
+    Math.abs(
+      stopMarkerBox!.x + stopMarkerBox!.width / 2 -
+        (railBox!.x + railBox!.width / 2),
+    ),
+  ).toBeLessThan(0.5);
+  expect(
+    await page.evaluate(() => document.documentElement.scrollHeight),
+  ).toBeLessThanOrEqual(await page.evaluate(() => window.innerHeight));
+
+  const enable218 = page.getByRole("button", {
+    name: /Enable notifications for line 218/,
+  });
+  const enable500 = page.getByRole("button", {
+    name: /Enable notifications for line 500/,
+  });
+  await expect(enable218).toHaveCount(3);
+  await expect(enable500).toHaveCount(2);
+
+  const enable218Marker = page.getByRole("button", {
+    name: /Enable tracking for line 218, 23 minutes away/,
+  });
+  await expect(enable218Marker).toHaveAttribute("aria-pressed", "false");
+  const endpointMarkerBeforeSelection = await enable218Marker.boundingBox();
+  expect(endpointMarkerBeforeSelection).not.toBeNull();
+  await enable218Marker.click();
   await expect(
-    page.getByRole("region", { name: "Active alert" }),
-  ).toBeHidden();
+    page.getByText("Tap a bus to track its line.", { exact: true }),
+  ).toHaveCount(0);
+  const disable218 = page.getByRole("button", {
+    name: /Disable notifications for line 218/,
+  });
+  await expect(disable218).toHaveCount(3);
+  await expect(disable218.first()).toHaveAttribute("aria-pressed", "true");
+  const selectedBusMarker = disable218
+    .first()
+    .locator("xpath=..")
+    .locator(".arrival-timeline-bus-marker");
+  await expect(selectedBusMarker).toHaveCSS(
+    "background-color",
+    "rgb(183, 187, 185)",
+  );
+  // The orange selection layer grows from the marker's bottom edge.
+  const selectionFill = await selectedBusMarker.evaluate((element) => {
+    const style = getComputedStyle(element, "::before");
+    return {
+      animationDuration: style.animationDuration,
+      animationName: style.animationName,
+      backgroundColor: style.backgroundColor,
+      fillHeight: Number.parseFloat(style.height),
+      originY: Number.parseFloat(style.transformOrigin.split(" ")[1]),
+    };
+  });
+  expect(selectionFill.animationName).toBe("bus-select-fill");
+  expect(selectionFill.animationDuration).toBe("0.24s");
+  expect(selectionFill.backgroundColor).toBe("rgb(229, 86, 47)");
+  expect(selectionFill.originY).toBeCloseTo(selectionFill.fillHeight, 1);
+  const selectedEndpointRow = page
+    .getByRole("button", {
+      name: /Disable notifications for line 218, 23 minutes away/,
+    })
+    .locator("xpath=..");
+  const unselectedEndpointRow = page
+    .getByRole("button", {
+      name: /Enable notifications for line 500, 19 minutes away/,
+    })
+    .locator("xpath=..");
+  const selectedEndpointMarkerBox = await selectedEndpointRow
+    .locator(".arrival-timeline-bus-marker")
+    .boundingBox();
+  const selectedEndpointTagBox = await selectedEndpointRow
+    .locator(".arrival-bus")
+    .boundingBox();
+  const unselectedEndpointMarkerBox = await unselectedEndpointRow
+    .locator(".arrival-timeline-bus-marker")
+    .boundingBox();
+  expect(selectedEndpointMarkerBox).not.toBeNull();
+  expect(selectedEndpointTagBox).not.toBeNull();
+  expect(unselectedEndpointMarkerBox).not.toBeNull();
+  expect(selectedEndpointMarkerBox!.y).toBeGreaterThan(
+    unselectedEndpointMarkerBox!.y,
+  );
+  expect(selectedEndpointTagBox!.x).toBeGreaterThan(
+    selectedEndpointMarkerBox!.x + selectedEndpointMarkerBox!.width,
+  );
+  expect(
+    Math.abs(
+      selectedEndpointMarkerBox!.y - endpointMarkerBeforeSelection!.y,
+    ),
+  ).toBeLessThan(5);
+
+  const endpointMarker = selectedEndpointRow.locator(
+    ".arrival-timeline-bus-marker",
+  );
+  const endpointTag = selectedEndpointRow.locator(".arrival-bus");
+  // Both bus hit targets share the same restrained hover elevation.
+  const defaultMarkerShadow = await endpointMarker.evaluate(
+    (element) => getComputedStyle(element).boxShadow,
+  );
+  const defaultTagShadow = await endpointTag.evaluate(
+    (element) => getComputedStyle(element).boxShadow,
+  );
+  await endpointMarker.hover();
+  await expect
+    .poll(() =>
+      endpointMarker.evaluate(
+        (element) => getComputedStyle(element).boxShadow,
+      ),
+    )
+    .not.toBe(defaultMarkerShadow);
+  await expect
+    .poll(() =>
+      endpointTag.evaluate((element) => getComputedStyle(element).boxShadow),
+    )
+    .not.toBe(defaultTagShadow);
+  await expect(endpointMarker).toHaveCSS(
+    "box-shadow",
+    "rgba(23, 32, 27, 0.22) 0px 2px 5px 0px",
+  );
+  await expect(endpointTag).toHaveCSS(
+    "box-shadow",
+    "rgba(23, 32, 27, 0.12) 0px 3px 8px 0px",
+  );
+  await page.getByRole("heading", { name: "Athens Bus Tracker" }).hover();
+  await endpointTag.hover();
+  await expect
+    .poll(() =>
+      endpointMarker.evaluate(
+        (element) => getComputedStyle(element).boxShadow,
+      ),
+    )
+    .not.toBe(defaultMarkerShadow);
+  await expect
+    .poll(() =>
+      endpointTag.evaluate((element) => getComputedStyle(element).boxShadow),
+    )
+    .not.toBe(defaultTagShadow);
+  await expect(endpointTag).toHaveCSS("border-color", "rgb(229, 86, 47)");
+  await expect(endpointTag).toHaveCSS("border-width", "1px");
+  const markerBox = await disable218
+    .first()
+    .locator("xpath=..")
+    .locator(".arrival-timeline-bus-marker")
+    .boundingBox();
+  expect(markerBox).not.toBeNull();
+  expect(markerBox!.width).toBeGreaterThanOrEqual(32);
+  expect(markerBox!.width).toBeCloseTo(markerBox!.height, 1);
+  expect(
+    Math.abs(
+      markerBox!.x + markerBox!.width / 2 -
+        (railBox!.x + railBox!.width / 2),
+    ),
+  ).toBeLessThan(1);
+  await expect(disable218.first().locator("xpath=../..")).toHaveCSS(
+    "transition-duration",
+    "0s",
+  );
+  await expect(enable500.first()).toHaveCSS("opacity", "1");
+  await expect(enable500.first()).toHaveCSS("border-bottom-width", "1px");
+  await expect(enable500.first()).toHaveCSS("border-bottom-style", "solid");
+  expect(requests.arrivalRequestCount()).toBe(1);
+
+  await enable500.first().click();
+  const disable500 = page.getByRole("button", {
+    name: /Disable notifications for line 500/,
+  });
+  await expect(disable500).toHaveCount(2);
+  await expect(disable218).toHaveCount(3);
+  expect(requests.arrivalRequestCount()).toBe(1);
+
+  await disable218.first().click();
   await expect(
-    page.getByRole("button", { name: "Notify", exact: true }),
-  ).toBeEnabled();
+    page.getByRole("button", { name: /Enable notifications for line 218/ }),
+  ).toHaveCount(3);
+  await expect(disable500).toHaveCount(2);
+  await expect(
+    page.getByRole("button", { name: /Enable notifications for line 218/ }).last(),
+  ).toHaveCSS("opacity", "1");
+
+  await page
+    .getByRole("button", { name: /Enable notifications for line 218/ })
+    .last()
+    .click();
+  await expect(disable218).toHaveCount(3);
+  await expect(
+    page.getByRole("button", { name: /^(10|5|3|1) min$/ }),
+  ).toHaveCount(0);
+
+  const stopRow = page.getByRole("button", {
+    name: /hsap n\. falhroy.*change/i,
+  });
+  const stopDisclosure = page.locator(".selected-stop-disclosure");
+  const stopPanel = stopDisclosure.locator(".selected-stop-panel");
+  await expect(
+    stopDisclosure.getByLabel("Map of OASA bus stops"),
+  ).toHaveCount(1);
+  await expect(stopPanel).toHaveCSS("grid-template-rows", "0px");
+  await expect(stopPanel).toHaveCSS(
+    "transition-duration",
+    "0.28s, 0.18s, 0s",
+  );
+  await stopRow.click();
+  await expect(page.getByLabel("Map of OASA bus stops")).toBeVisible();
+  await expect
+    .poll(async () => (await stopPanel.boundingBox())?.height ?? 0)
+    .toBeGreaterThan(200);
+  // Selection swaps the blue center for an orange one inside the white border.
+  await expect(mapStopMarker).toHaveAttribute("stroke", "#ffffff");
+  await expect(mapStopMarker).toHaveAttribute("stroke-opacity", "1");
+  await expect(mapStopMarker).toHaveAttribute("fill", "#e5562f");
+  await expect(mapStopMarker).toHaveAttribute("fill-opacity", "0.95");
+  await expect(page.getByLabel("Bus arrivals")).toBeHidden();
+  await page
+    .getByRole("button", { name: /hsap n\. falhroy.*track/i })
+    .click();
+  // The connector and rail share one keyframe with consecutive start times.
+  const connectorAnimation = await page
+    .locator(".selected-stop-row")
+    .evaluate((element) => {
+      const style = getComputedStyle(element, "::after");
+      return {
+        delay: style.animationDelay,
+        duration: style.animationDuration,
+        name: style.animationName,
+      };
+    });
+  expect(connectorAnimation).toEqual({
+    delay: "0.28s",
+    duration: "0.1s",
+    name: "transit-line-enter",
+  });
+  const revealedRail = page.locator(".arrival-timeline-rail");
+  await expect(page.locator(".arrival-timeline-section-entering")).toBeVisible();
+  const railAnimation = await revealedRail.evaluate((element) => {
+    const animation = element.getAnimations()[0];
+    if (!animation || !(animation.effect instanceof KeyframeEffect)) return null;
+    const timing = animation.effect.getTiming();
+    return {
+      delay: timing.delay,
+      duration: timing.duration,
+      transforms: animation.effect
+        .getKeyframes()
+        .map((keyframe) => keyframe.transform),
+    };
+  });
+  expect(railAnimation).toEqual({
+    delay: 380,
+    duration: 480,
+    transforms: ["scaleY(0)", "scaleY(1)"],
+  });
+  await expect(page.getByLabel("Map of OASA bus stops")).toBeHidden();
+  await expect
+    .poll(async () => (await stopPanel.boundingBox())?.height ?? -1)
+    .toBe(0);
+  await expect(page.getByLabel("Bus arrivals")).toBeVisible();
+  await expect(page.locator(".arrival-timeline-rail")).toHaveCSS(
+    "animation-name",
+    "transit-line-enter",
+  );
+
+  await page.reload();
+  await expect(page.getByLabel("Bus arrivals")).toBeVisible();
+  expect(requests.arrivalRequestCount()).toBe(1);
+});
+
+test("saves a multi-line favorite with v4 storage", async ({ page }) => {
+  await installNotificationMock(page);
+  await mockStopData(page);
+  await page.goto("/");
+  await page
+    .getByRole("combobox", { name: "Search and choose a stop" })
+    .click();
+  await page.getByRole("option", { name: /hsap n\. falhroy/i }).click();
+  await page
+    .getByRole("button", { name: /Enable notifications for line 218/ })
+    .first()
+    .click();
+  await page
+    .getByRole("button", { name: /Enable notifications for line 500/ })
+    .first()
+    .click();
+
+  await page
+    .locator("header")
+    .getByRole("button", { name: "Favorites" })
+    .click();
+  const dialog = page.getByRole("dialog", { name: "Favorites" });
+  await dialog.getByPlaceholder("Favorite name").fill("Home");
+  await dialog.getByRole("button", { name: "Save" }).click();
 
   await expect
     .poll(() =>
       page.evaluate(() => {
-        const raw = window.localStorage.getItem(
-          "athens-bus-ticker:v3",
-        );
+        const raw = window.localStorage.getItem("athens-bus-ticker:v4");
         if (!raw) return null;
         const state = JSON.parse(raw);
         return {
           version: state.version,
-          favoriteLineAlerts: state.favorites[0]?.lineAlerts,
+          lineIds: state.favorites[0]?.lineIds,
+          subscriptions: state.subscriptions.map(
+            (item: { lineId: string }) => item.lineId,
+          ),
         };
       }),
     )
     .toEqual({
-      version: 3,
-      favoriteLineAlerts: [
-        {
-          lineId: "218",
-          optionalThresholds: [10, 3, 1],
-        },
-        {
-          lineId: "500",
-          optionalThresholds: [3, 1],
-        },
-      ],
+      version: 4,
+      lineIds: ["218", "500"],
+      subscriptions: ["218", "500"],
     });
 });
 
-test("keeps automatic location failures quiet", async ({ page }) => {
-  await page.clock.install();
+test("promotes the next same-code bus after due-now", async ({ page }) => {
+  await installNotificationMock(page);
+  await mockStopData(page, [
+    { routeCode: "2810", vehicleId: "218-first", minutes: 0 },
+    { routeCode: "2810", vehicleId: "218-next", minutes: 6 },
+  ]);
   await page.addInitScript(() => {
-    Object.defineProperty(navigator, "geolocation", {
-      configurable: true,
-      value: {
-        getCurrentPosition(
-          _success: PositionCallback,
-          error?: PositionErrorCallback,
-        ) {
-          error?.({
-            code: 2,
-            message: "Position unavailable",
-            PERMISSION_DENIED: 1,
-            POSITION_UNAVAILABLE: 2,
-            TIMEOUT: 3,
-          } as GeolocationPositionError);
-        },
-      },
-    });
-  });
-  await mockStopData(page);
-  await page.goto("/");
-  await page.clock.fastForward(40_000);
-
-  await expect(
-    page.getByText(/Your location is unavailable/),
-  ).toHaveCount(0);
-
-  await page
-    .getByRole("button", {
-      name: "Refresh and center on your location",
-    })
-    .click();
-  await expect(
-    page.getByText(/Your location is unavailable/),
-  ).toBeVisible();
-});
-
-test("keeps other buses active when one bus arrives", async ({ page }) => {
-  let arrivalRequestCount = 0;
-  await page.clock.install();
-  await page.addInitScript(() => {
-    Object.defineProperty(window, "Notification", {
-      configurable: true,
-      value: class {
-        static permission = "granted";
-        static requestPermission = async () => "granted";
-      },
-    });
     window.localStorage.setItem(
-      "athens-bus-ticker:v3",
+      "athens-bus-ticker:v4",
       JSON.stringify({
-        version: 3,
-        selectedStop: {
-          code: "400075",
-          name: "HSAP N. FALHROY",
-        },
-        lineAlerts: [
+        version: 4,
+        selectedStop: { code: "400075", name: "HSAP N. FALHROY" },
+        subscriptions: [
           {
             lineId: "218",
-            optionalThresholds: [10, 5, 3, 1],
-          },
-          {
-            lineId: "500",
-            optionalThresholds: [10, 5, 3, 1],
+            trackedVehicleKey: null,
+            firedOneMinute: false,
+            predictedZeroAt: null,
+            lastObservedMinutes: null,
+            recentVehicles: [],
           },
         ],
         favorites: [],
-        activeAlarm: {
-          id: "alarm-1",
-          stopCode: "400075",
-          stopName: "HSAP N. FALHROY",
-          lineAlerts: [
-            {
-              lineId: "218",
-              optionalThresholds: [10, 5, 3, 1],
-              firedThresholds: [10, 5, 3, 1],
-              predictedZeroAt: null,
-              lastObservedMinutes: 1,
-              completedAt: null,
-            },
-            {
-              lineId: "500",
-              optionalThresholds: [10, 5, 3, 1],
-              firedThresholds: [10, 5, 3, 1],
-              predictedZeroAt: null,
-              lastObservedMinutes: 1,
-              completedAt: null,
-            },
-          ],
-          armedAt: new Date(Date.now() - 60_000).toISOString(),
-          completedAt: null,
-        },
       }),
     );
   });
-  await mockStopData(page);
-  await page.route("**/api/stops/400075/arrivals", async (route) => {
-    arrivalRequestCount += 1;
-    await route.fulfill({
-      json: {
-        arrivals: [
-          { routeCode: "2810", vehicleId: "218-a", minutes: 0 },
-          {
-            routeCode: "5000",
-            vehicleId: "500-a",
-            minutes: arrivalRequestCount === 1 ? 4 : 0,
-          },
-        ],
-        observedAt: new Date().toISOString(),
-      },
-    });
-  });
-
   await page.goto("/");
-  const activeAlert = page.getByRole("region", { name: "Active alert" });
-  await expect(activeAlert).toBeVisible();
-  await expect(activeAlert.getByText("ARRIVED")).toHaveCount(1);
-  await expect(
-    activeAlert.getByText("4 min", { exact: true }),
-  ).toHaveCount(1);
-  await expect(
-    activeAlert.getByText("peiraias - kifisia", { exact: true }),
-  ).toHaveCount(1);
-  const activeBus500 = activeAlert.locator(
-    '[data-alert-line="500"]',
-  );
-  const activeBadgeBox = await activeBus500
-    .locator(".arrival-line-selected")
-    .boundingBox();
-  const activeDescriptionBox = await activeBus500
-    .getByText("peiraias - kifisia", { exact: true })
-    .boundingBox();
-  const activeTimeBox = await activeBus500
-    .getByText("10 min", { exact: true })
-    .boundingBox();
-  expect(activeBadgeBox).not.toBeNull();
-  expect(activeDescriptionBox).not.toBeNull();
-  expect(activeTimeBox).not.toBeNull();
-  expect(activeDescriptionBox!.y).toBeGreaterThan(
-    activeBadgeBox!.y + activeBadgeBox!.height,
-  );
-  expect(Math.abs(activeTimeBox!.x - activeBadgeBox!.x)).toBeLessThan(
-    2,
-  );
-  await expect(page.getByRole("button", { name: "Cancel" })).toBeVisible();
 
-  await page.clock.fastForward(20_000);
-  const completedAlert = page.getByRole("region", {
-    name: "Alert complete",
-  });
-  await expect(completedAlert).toBeVisible();
-  await expect(completedAlert.getByText("ARRIVED")).toHaveCount(2);
+  const urgent = page.getByRole("alert").filter({ hasText: /due now/i });
+  await expect(urgent).toContainText("218");
   await expect(
-    completedAlert.getByRole("button", { name: "Restart" }),
-  ).toBeVisible();
-  expect(arrivalRequestCount).toBeGreaterThanOrEqual(2);
+    page.getByRole("button", { name: /Disable notifications for line 218/ }),
+  ).toHaveCount(2);
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const state = JSON.parse(
+          window.localStorage.getItem("athens-bus-ticker:v4") ?? "null",
+        );
+        const subscription = state?.subscriptions?.[0];
+        return subscription
+          ? {
+              tracked: subscription.trackedVehicleKey,
+              recent: subscription.recentVehicles.map(
+                (item: { key: string }) => item.key,
+              ),
+            }
+          : null;
+      }),
+    )
+    .toEqual({
+      tracked: "2810:218-next",
+      recent: ["2810:218-first"],
+    });
+});
+
+test("flips a bus when a fresh snapshot moves it backward", async ({
+  page,
+}) => {
+  await page.clock.install();
+  await installNotificationMock(page);
+  const requests = await mockStopData(
+    page,
+    (requestCount) => [
+      {
+        routeCode: "2810",
+        vehicleId: "218-a",
+        minutes: requestCount === 1 ? 4 : 7,
+      },
+    ],
+    30_000,
+  );
+  await page.goto("/");
+  await page
+    .getByRole("combobox", { name: "Search and choose a stop" })
+    .click();
+  await page.getByRole("option", { name: /hsap n\. falhroy/i }).click();
+  await page
+    .getByRole("button", { name: /Enable notifications for line 218/ })
+    .click();
+
+  // A retained data attribute proves the tag was not remounted for the icon flip.
+  await page
+    .getByRole("button", { name: /Disable notifications for line 218/ })
+    .evaluate((element) => {
+      element.dataset.correctionIdentity = "retained";
+    });
+
+  await page.clock.fastForward(60_000);
+  await expect.poll(requests.arrivalRequestCount).toBeGreaterThanOrEqual(2);
+
+  const correctedRow = page
+    .getByRole("button", { name: /Disable notifications for line 218/ })
+    .locator("xpath=..");
+  await expect(
+    page.getByRole("button", { name: /Disable notifications for line 218/ }),
+  ).toHaveAttribute("data-correction-identity", "retained");
+  const correctedMarker = correctedRow.locator(
+    ".arrival-timeline-bus-marker",
+  );
+  const correctedGroup = correctedRow.locator("xpath=..");
+  await expect(correctedRow).toHaveClass(/arrival-timeline-row-flip/);
+  await expect(correctedMarker).toHaveCSS(
+    "animation-name",
+    "bus-jump-flip",
+  );
+  await expect(correctedGroup).toHaveCSS(
+    "animation-name",
+    "bus-group-backtrack",
+  );
+  expect(
+    await correctedGroup.evaluate((element) =>
+      Number.parseFloat(
+        getComputedStyle(element).getPropertyValue("--backtrack-offset"),
+      ),
+    ),
+  ).toBeLessThan(0);
+  await expect(correctedMarker).toHaveCSS("animation-duration", "0.96s");
+  await expect(correctedGroup).toHaveCSS("animation-duration", "0.96s");
+  await expect(correctedMarker).toHaveCSS(
+    "animation-timing-function",
+    "ease-in-out",
+  );
+  await expect(correctedGroup).toHaveCSS(
+    "animation-timing-function",
+    "ease-in-out",
+  );
+});
+
+test("accelerates and brakes for a forward ETA correction", async ({
+  page,
+}) => {
+  await page.clock.install();
+  await installNotificationMock(page);
+  const requests = await mockStopData(
+    page,
+    (requestCount) => [
+      {
+        routeCode: "2810",
+        vehicleId: "218-a",
+        minutes: requestCount === 1 ? 4 : 2,
+      },
+    ],
+    30_000,
+  );
+  await page.goto("/");
+  await page
+    .getByRole("combobox", { name: "Search and choose a stop" })
+    .click();
+  await page.getByRole("option", { name: /hsap n\. falhroy/i }).click();
+  await page
+    .getByRole("button", { name: /Enable notifications for line 218/ })
+    .click();
+
+  await page.clock.fastForward(60_000);
+  await expect.poll(requests.arrivalRequestCount).toBeGreaterThanOrEqual(2);
+
+  const correctedGroup = page
+    .getByRole("button", { name: /Disable notifications for line 218/ })
+    .locator("xpath=../..");
+  await expect(correctedGroup).toHaveClass(/arrival-timeline-group-forward/);
+  await expect(correctedGroup).toHaveCSS(
+    "transition-timing-function",
+    "cubic-bezier(0.5, 0, 0.9, 1)",
+  );
 });

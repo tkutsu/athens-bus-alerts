@@ -111,7 +111,7 @@ export function StopMap({
         : ATHENS_CENTER;
       const map = L.map(containerRef.current, {
         center: initialCenter,
-        zoom: 15,
+        zoom: 16,
         minZoom: 11,
         maxZoom: 19,
         maxBounds: OASA_MAP_BOUNDS,
@@ -175,10 +175,13 @@ export function StopMap({
 
     for (const stop of visibleStops) {
       const isSelected = stop.code === selectedStop?.code;
+
+      // Use the original blue stops while a larger orange center identifies selection.
       const marker = L.circleMarker([stop.latitude, stop.longitude], {
-        radius: isSelected ? 8 : 5,
-        color: isSelected ? "#17201b" : "#ffffff",
-        weight: isSelected ? 3 : 1.5,
+        radius: isSelected ? 12 : 8,
+        color: "#ffffff",
+        opacity: 1,
+        weight: isSelected ? 3.5 : 2,
         fillColor: isSelected ? "#e5562f" : "#2563eb",
         fillOpacity: 0.95,
       });
@@ -231,7 +234,7 @@ export function StopMap({
       .bindTooltip("Your position", { direction: "top" })
       .addTo(map);
     userMarkerRef.current = marker;
-    map.setView(position, 16);
+    map.setView(position, 17);
   }, [center, mapReady]);
 
   /** Recenters only after an explicit location refresh. */
@@ -252,10 +255,10 @@ export function StopMap({
   }, [selectedStop]);
 
   return (
-    <div className="relative mt-4 overflow-hidden border border-ink/20 bg-white/40">
+    <div className="stop-map-shell relative mt-4 overflow-hidden border border-ink/20 bg-white/40">
       <div
         aria-label="Map of OASA bus stops"
-        className="h-80 w-full"
+        className="h-[clamp(12rem,45dvh,20rem)] w-full"
         ref={containerRef}
       />
       <button

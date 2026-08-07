@@ -1,25 +1,27 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  readCachedArrivals,
+  writeCachedArrivals,
+  type ArrivalsPayload,
+} from "@/lib/arrival-cache";
 import type { ApiErrorPayload, Arrival } from "@/lib/types";
 
-interface ArrivalsPayload {
-  arrivals: Arrival[];
-  observedAt: string;
-}
-
-const NEAR_POLL_INTERVAL_MS = 20_000;
-const STANDARD_POLL_INTERVAL_MS = 30_000;
+const NEAR_POLL_INTERVAL_MS = 30_000;
+const IMMINENT_POLL_INTERVAL_MS = 20_000;
 const FAR_POLL_INTERVAL_MS = 60_000;
 const ERROR_POLL_INTERVAL_MS = 40_000;
 const RESUME_COALESCE_MS = 5_000;
 const ERROR_DISMISS_MS = 30_000;
 
-/** Chooses the next successful poll interval from the earliest selected bus. */
+/** Uses only selected routes to choose the next 30- or 60-second cadence. */
 export function arrivalPollInterval(
   arrivals: readonly Arrival[],
   selectedRouteCodes: readonly string[],
 ): number {
+  if (selectedRouteCodes.length === 0) return FAR_POLL_INTERVAL_MS;
+
   const selectedRoutes = new Set(selectedRouteCodes);
   const earliestMinutes = arrivals.reduce(
     (earliest, arrival) =>
@@ -29,10 +31,8 @@ export function arrivalPollInterval(
     Number.POSITIVE_INFINITY,
   );
 
-  if (!Number.isFinite(earliestMinutes)) return STANDARD_POLL_INTERVAL_MS;
-  if (earliestMinutes <= 3) return NEAR_POLL_INTERVAL_MS;
-  if (earliestMinutes <= 10) return STANDARD_POLL_INTERVAL_MS;
-  return FAR_POLL_INTERVAL_MS;
+  if (earliestMinutes < 2) return IMMINENT_POLL_INTERVAL_MS;
+  return earliestMinutes <= 10 ? NEAR_POLL_INTERVAL_MS : FAR_POLL_INTERVAL_MS;
 }
 
 async function readError(response: Response): Promise<string> {
@@ -42,7 +42,7 @@ async function readError(response: Response): Promise<string> {
   return value?.error.message ?? "Could not refresh live arrivals.";
 }
 
-/** Polls one stop without overlapping requests and pauses while hidden/offline. */
+/** Reuses the persisted absolute schedule and never overlaps requests. */
 export function useArrivalPolling(
   stopCode: string | null,
   selectedRouteCodes: readonly string[] = [],
@@ -58,19 +58,28 @@ export function useArrivalPolling(
   const retryNotBeforeRef = useRef(0);
   const nextPollAtRef = useRef(0);
   const selectedRouteCodesRef = useRef(selectedRouteCodes);
+  const dataRef = useRef<ArrivalsPayload | null>(null);
+  const selectedRoutesKey = [...selectedRouteCodes].sort().join("\u0000");
 
   useEffect(() => {
+    // A selection affects the interval calculated after the existing timer fires.
     selectedRouteCodesRef.current = selectedRouteCodes;
-  }, [selectedRouteCodes]);
+  }, [selectedRouteCodes, selectedRoutesKey]);
+
+  const persistSchedule = useCallback(
+    (at: number, intervalMs: number) => {
+      if (stopCode && dataRef.current) {
+        writeCachedArrivals(stopCode, dataRef.current, at, intervalMs);
+      }
+    },
+    [stopCode],
+  );
 
   const refresh = useCallback((minimumAgeMs = 0): Promise<void> => {
     if (!stopCode || !navigator.onLine || document.hidden) {
       return Promise.resolve();
     }
-
-    if (inFlightRef.current) {
-      return inFlightRef.current;
-    }
+    if (inFlightRef.current) return inFlightRef.current;
 
     const now = Date.now();
     if (
@@ -86,26 +95,25 @@ export function useArrivalPolling(
 
     const request = (async () => {
       setIsLoading(true);
-
       try {
         const response = await fetch(`/api/stops/${stopCode}/arrivals`, {
           cache: "no-store",
           signal: controller.signal,
         });
-
-        if (!response.ok) {
-          throw new Error(await readError(response));
-        }
+        if (!response.ok) throw new Error(await readError(response));
 
         const payload = (await response.json()) as ArrivalsPayload;
-        const nextInterval = arrivalPollInterval(
+        const interval = arrivalPollInterval(
           payload.arrivals,
           selectedRouteCodesRef.current,
         );
+        const nextPollAt = Date.now() + interval;
         retryNotBeforeRef.current = 0;
-        nextPollAtRef.current = Date.now() + nextInterval;
+        nextPollAtRef.current = nextPollAt;
+        dataRef.current = payload;
         setData(payload);
         setError(null);
+        writeCachedArrivals(stopCode, payload, nextPollAt, interval);
       } catch (refreshError) {
         if (
           !(refreshError instanceof DOMException) ||
@@ -114,6 +122,7 @@ export function useArrivalPolling(
           const retryAt = Date.now() + ERROR_POLL_INTERVAL_MS;
           retryNotBeforeRef.current = retryAt;
           nextPollAtRef.current = retryAt;
+          persistSchedule(retryAt, ERROR_POLL_INTERVAL_MS);
           setError(
             refreshError instanceof Error
               ? refreshError.message
@@ -121,11 +130,10 @@ export function useArrivalPolling(
           );
         }
       } finally {
-        if (!controller.signal.aborted) {
-          setIsLoading(false);
-        }
+        if (!controller.signal.aborted) setIsLoading(false);
       }
     })();
+
     const trackedRequest = request.finally(() => {
       if (inFlightRef.current === trackedRequest) {
         inFlightRef.current = null;
@@ -133,31 +141,31 @@ export function useArrivalPolling(
     });
     inFlightRef.current = trackedRequest;
     return trackedRequest;
-  }, [stopCode]);
+  }, [persistSchedule, stopCode]);
 
+  /* eslint-disable react-hooks/set-state-in-effect -- restore the external arrival snapshot before scheduling */
   useEffect(() => {
-    // Reset the previous stop's snapshot before starting its replacement poll.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setData(null);
     setError(null);
-
     if (!stopCode) {
+      dataRef.current = null;
+      setData(null);
       return;
     }
 
     let cancelled = false;
     lastRequestStartedAtRef.current = 0;
     retryNotBeforeRef.current = 0;
-    nextPollAtRef.current = Date.now();
+    const cached = readCachedArrivals(stopCode);
+    dataRef.current = cached?.data ?? null;
+    setData(cached?.data ?? null);
+    nextPollAtRef.current = cached
+      ? new Date(cached.nextPollAt).getTime()
+      : Date.now();
 
     const schedule = () => {
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-      }
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
       const delay = Math.max(0, nextPollAtRef.current - Date.now());
-      timeoutRef.current = setTimeout(() => {
-        void runAndSchedule();
-      }, delay);
+      timeoutRef.current = setTimeout(() => void runAndSchedule(), delay);
     };
 
     const runAndSchedule = async (minimumAgeMs = 0) => {
@@ -165,20 +173,25 @@ export function useArrivalPolling(
         clearTimeout(timeoutRef.current);
         timeoutRef.current = null;
       }
-      if (document.hidden || !navigator.onLine) {
-        return;
-      }
-
+      if (document.hidden || !navigator.onLine) return;
       await refresh(minimumAgeMs);
-      if (!cancelled) {
-        schedule();
-      }
+      if (!cancelled) schedule();
     };
 
-    void runAndSchedule();
+    if (nextPollAtRef.current > Date.now()) {
+      schedule();
+    } else {
+      void runAndSchedule();
+    }
 
     const resume = () => {
-      if (!document.hidden && navigator.onLine) {
+      if (document.hidden || !navigator.onLine) {
+        if (timeoutRef.current) clearTimeout(timeoutRef.current);
+        return;
+      }
+      if (nextPollAtRef.current > Date.now()) {
+        schedule();
+      } else {
         void runAndSchedule(RESUME_COALESCE_MS);
       }
     };
@@ -186,38 +199,36 @@ export function useArrivalPolling(
     document.addEventListener("visibilitychange", resume);
     window.addEventListener("focus", resume);
     window.addEventListener("online", resume);
+    window.addEventListener("offline", resume);
 
     return () => {
       cancelled = true;
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-      }
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
       controllerRef.current?.abort();
       inFlightRef.current = null;
       document.removeEventListener("visibilitychange", resume);
       window.removeEventListener("focus", resume);
       window.removeEventListener("online", resume);
+      window.removeEventListener("offline", resume);
     };
   }, [refresh, stopCode]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   useEffect(() => {
     const updateClock = () => setClock(Date.now());
     updateClock();
-    const interval = window.setInterval(updateClock, 15_000);
+    const interval = window.setInterval(updateClock, 1_000);
     return () => window.clearInterval(interval);
   }, []);
 
   useEffect(() => {
     if (!error) return;
-
-    // A prolonged OASA outage should not leave a stale error banner indefinitely.
     const timeout = window.setTimeout(() => setError(null), ERROR_DISMISS_MS);
     return () => window.clearTimeout(timeout);
   }, [error]);
 
   const stale =
-    data !== null &&
-    clock - new Date(data.observedAt).getTime() > 60_000;
+    data !== null && clock - new Date(data.observedAt).getTime() > 60_000;
 
   return { data, error, isLoading, stale };
 }
