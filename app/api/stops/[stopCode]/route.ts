@@ -1,16 +1,13 @@
 import { NextResponse } from "next/server";
 import { apiError, isStopCode, oasaErrorResponse } from "@/lib/api";
-import { getRoutesForStop, getStopDetails } from "@/lib/oasa/client";
-import {
-  normalizeRoutes,
-  normalizeStopDetails,
-} from "@/lib/oasa/normalize";
+import { getRoutesForStop } from "@/lib/oasa/client";
+import { normalizeRoutes } from "@/lib/oasa/normalize";
 
 interface RouteContext {
   params: Promise<{ stopCode: string }>;
 }
 
-/** Returns stop details and serving routes. */
+/** Returns cacheable route metadata for a stop from the static catalogue. */
 export async function GET(_request: Request, context: RouteContext) {
   const { stopCode } = await context.params;
 
@@ -19,22 +16,16 @@ export async function GET(_request: Request, context: RouteContext) {
   }
 
   try {
-    const [details, upstreamRoutes] = await Promise.all([
-      getStopDetails(stopCode),
-      getRoutesForStop(stopCode),
-    ]);
-    const stop = details?.[0];
-
-    if (!stop) {
-      return apiError(404, "NOT_FOUND", "That OASA stop was not found.");
-    }
-
-    const routes = normalizeRoutes(upstreamRoutes ?? []);
-
-    return NextResponse.json({
-      stop: { ...normalizeStopDetails(stop), distanceMeters: 0 },
-      ...routes,
-    });
+    const upstreamRoutes = await getRoutesForStop(stopCode);
+    return NextResponse.json(
+      { routes: normalizeRoutes(upstreamRoutes ?? []) },
+      {
+        headers: {
+          "Cache-Control":
+            "public, max-age=300, s-maxage=86400, stale-while-revalidate=604800",
+        },
+      },
+    );
   } catch (error) {
     return oasaErrorResponse(error);
   }

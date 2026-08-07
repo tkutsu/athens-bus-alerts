@@ -6,7 +6,8 @@ import {
   writeCachedArrivals,
   type ArrivalsPayload,
 } from "@/lib/arrival-cache";
-import type { ApiErrorPayload, Arrival } from "@/lib/types";
+import { apiErrorMessage, isAbortError } from "@/lib/client-api";
+import type { Arrival } from "@/lib/types";
 
 const NEAR_POLL_INTERVAL_MS = 30_000;
 const IMMINENT_POLL_INTERVAL_MS = 20_000;
@@ -35,13 +36,6 @@ export function arrivalPollInterval(
   return earliestMinutes <= 10 ? NEAR_POLL_INTERVAL_MS : FAR_POLL_INTERVAL_MS;
 }
 
-async function readError(response: Response): Promise<string> {
-  const value = (await response.json().catch(() => null)) as
-    | ApiErrorPayload
-    | null;
-  return value?.error.message ?? "Could not refresh live arrivals.";
-}
-
 /** Reuses the persisted absolute schedule and never overlaps requests. */
 export function useArrivalPolling(
   stopCode: string | null,
@@ -50,7 +44,6 @@ export function useArrivalPolling(
   const [data, setData] = useState<ArrivalsPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [clock, setClock] = useState(0);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const controllerRef = useRef<AbortController | null>(null);
   const inFlightRef = useRef<Promise<void> | null>(null);
@@ -59,17 +52,16 @@ export function useArrivalPolling(
   const nextPollAtRef = useRef(0);
   const selectedRouteCodesRef = useRef(selectedRouteCodes);
   const dataRef = useRef<ArrivalsPayload | null>(null);
-  const selectedRoutesKey = [...selectedRouteCodes].sort().join("\u0000");
 
   useEffect(() => {
     // A selection affects the interval calculated after the existing timer fires.
     selectedRouteCodesRef.current = selectedRouteCodes;
-  }, [selectedRouteCodes, selectedRoutesKey]);
+  }, [selectedRouteCodes]);
 
   const persistSchedule = useCallback(
-    (at: number, intervalMs: number) => {
+    (at: number) => {
       if (stopCode && dataRef.current) {
-        writeCachedArrivals(stopCode, dataRef.current, at, intervalMs);
+        writeCachedArrivals(stopCode, dataRef.current, at);
       }
     },
     [stopCode],
@@ -100,7 +92,14 @@ export function useArrivalPolling(
           cache: "no-store",
           signal: controller.signal,
         });
-        if (!response.ok) throw new Error(await readError(response));
+        if (!response.ok) {
+          throw new Error(
+            await apiErrorMessage(
+              response,
+              "Could not refresh live arrivals.",
+            ),
+          );
+        }
 
         const payload = (await response.json()) as ArrivalsPayload;
         const interval = arrivalPollInterval(
@@ -113,16 +112,13 @@ export function useArrivalPolling(
         dataRef.current = payload;
         setData(payload);
         setError(null);
-        writeCachedArrivals(stopCode, payload, nextPollAt, interval);
+        writeCachedArrivals(stopCode, payload, nextPollAt);
       } catch (refreshError) {
-        if (
-          !(refreshError instanceof DOMException) ||
-          refreshError.name !== "AbortError"
-        ) {
+        if (!isAbortError(refreshError)) {
           const retryAt = Date.now() + ERROR_POLL_INTERVAL_MS;
           retryNotBeforeRef.current = retryAt;
           nextPollAtRef.current = retryAt;
-          persistSchedule(retryAt, ERROR_POLL_INTERVAL_MS);
+          persistSchedule(retryAt);
           setError(
             refreshError instanceof Error
               ? refreshError.message
@@ -149,6 +145,7 @@ export function useArrivalPolling(
     if (!stopCode) {
       dataRef.current = null;
       setData(null);
+      setIsLoading(false);
       return;
     }
 
@@ -215,20 +212,10 @@ export function useArrivalPolling(
   /* eslint-enable react-hooks/set-state-in-effect */
 
   useEffect(() => {
-    const updateClock = () => setClock(Date.now());
-    updateClock();
-    const interval = window.setInterval(updateClock, 1_000);
-    return () => window.clearInterval(interval);
-  }, []);
-
-  useEffect(() => {
     if (!error) return;
     const timeout = window.setTimeout(() => setError(null), ERROR_DISMISS_MS);
     return () => window.clearTimeout(timeout);
   }, [error]);
 
-  const stale =
-    data !== null && clock - new Date(data.observedAt).getTime() > 60_000;
-
-  return { data, error, isLoading, stale };
+  return { data, error, isLoading };
 }

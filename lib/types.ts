@@ -16,11 +16,6 @@ export interface ServingRoute {
   description: string;
 }
 
-export interface ServingLine {
-  lineId: string;
-  description: string;
-}
-
 export interface Arrival {
   routeCode: string;
   vehicleId: string;
@@ -62,7 +57,6 @@ export interface ApiErrorPayload {
   error: {
     code:
       | "INVALID_INPUT"
-      | "NOT_FOUND"
       | "OASA_UNAVAILABLE"
       | "OASA_INVALID_RESPONSE";
     message: string;
