@@ -454,29 +454,25 @@ textarea:disabled {
   height: 2rem;
   aspect-ratio: 1;
   flex: 0 0 auto;
-  overflow: hidden;
-  isolation: isolate;
+  overflow: visible;
   place-items: center;
-  border: 2px solid var(--paper);
+  border: 0;
   border-radius: 999px;
-  background: var(--muted-marker);
+  background: transparent;
   padding: 0;
   color: white;
-  box-shadow: 0 1px 4px rgb(var(--shadow-rgb) / 0.18);
   transform: translateY(-50%) translateZ(0);
   transform-style: preserve-3d;
-  transition: box-shadow 140ms ease;
 }
 
-/* Reveal the selected color upward without touching the marker's own transform. */
-.arrival-timeline-bus-marker::before {
+.arrival-timeline-marker-flipper {
   position: absolute;
   inset: 0;
-  z-index: 0;
-  background: var(--signal);
-  content: "";
-  transform: scaleY(0);
-  transform-origin: 50% 100%;
+  display: block;
+  border-radius: inherit;
+  transform: rotateY(0deg);
+  transform-style: preserve-3d;
+  transition: transform 720ms cubic-bezier(0.2, 0.8, 0.2, 1) 0ms;
 }
 
 /* Pop each icon on its stable stagger while the continuous line is drawing. */
@@ -491,18 +487,39 @@ textarea:disabled {
     .arrival-bus:hover,
     .arrival-bus:focus-visible
   )
-  .arrival-timeline-bus-marker {
+  .arrival-timeline-marker-face {
   /* Keep the shared hover elevation subtle around the compact bus icon. */
   box-shadow: 0 2px 5px rgb(var(--shadow-rgb) / 0.22);
 }
 
 .arrival-timeline-bus-marker-selected {
+  background: transparent;
+}
+
+.arrival-timeline-bus-marker-selected .arrival-timeline-marker-flipper {
+  transform: rotateY(-180deg);
+}
+
+.arrival-timeline-marker-face {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  border: 2px solid var(--paper);
+  border-radius: inherit;
+  box-shadow: 0 1px 4px rgb(var(--shadow-rgb) / 0.18);
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+  transition: box-shadow 140ms ease;
+}
+
+.arrival-timeline-marker-face-disabled {
   background: var(--muted-marker);
 }
 
-/* Fill a newly selected marker from its bottom edge to its top. */
-.arrival-timeline-bus-marker-selected::before {
-  animation: bus-select-fill 240ms cubic-bezier(0.22, 1, 0.36, 1) both;
+.arrival-timeline-marker-face-enabled {
+  background: var(--signal);
+  transform: rotateY(180deg);
 }
 
 .arrival-timeline-bus-icon {
@@ -610,37 +627,26 @@ textarea:disabled {
   }
 }
 
-/* Give each icon a compact overshoot and settle without changing its position. */
+/* Give each icon a strong overshoot and settle without changing its position. */
 @keyframes bus-pop-enter {
   0% {
     opacity: 0;
-    transform: translateY(-50%) translateZ(0) scale(0.55);
+    transform: translateY(-50%) translateZ(0) scale(0.25);
   }
 
-  58% {
+  52% {
     opacity: 1;
     transform: translateY(-50%) translateZ(0) scale(var(--arrival-pop-scale));
   }
 
-  80% {
+  76% {
     opacity: 1;
-    transform: translateY(-50%) translateZ(0) scale(0.97);
+    transform: translateY(-50%) translateZ(0) scale(0.9);
   }
 
   100% {
     opacity: 1;
     transform: translateY(-50%) translateZ(0) scale(1);
-  }
-}
-
-/* Paint selection vertically while preserving the circular marker boundary. */
-@keyframes bus-select-fill {
-  from {
-    transform: scaleY(0);
-  }
-
-  to {
-    transform: scaleY(1);
   }
 }
 
@@ -706,6 +712,7 @@ textarea:disabled {
 
   .arrival-timeline-group,
   .arrival-bus,
+  .arrival-timeline-marker-flipper,
   .selected-stop-row,
   .selected-stop-panel {
     transition: none;
@@ -726,11 +733,6 @@ textarea:disabled {
     animation: none;
   }
 
-  /* Show the completed selected fill immediately when motion is reduced. */
-  .arrival-timeline-bus-marker-selected::before {
-    animation: none;
-    transform: scaleY(1);
-  }
 }
 
 @media (max-width: 639px) {

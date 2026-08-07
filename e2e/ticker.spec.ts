@@ -137,7 +137,7 @@ test("uses one progressive timeline with independent multi-line toggles", async 
     page.getByText("Tap a bus to track its line.", { exact: true }),
   ).toHaveCount(0);
   await expect(page.getByText("15+", { exact: true })).toHaveCount(0);
-  await expect(page.locator(".arrival-timeline-bus-icon")).toHaveCount(5);
+  await expect(page.locator(".arrival-timeline-bus-icon")).toHaveCount(10);
   // Every icon/tag pair receives a varied schedule that ends with the line draw.
   const entranceRows = page.locator(".arrival-timeline-row");
   const entranceTimings = await entranceRows.evaluateAll((rows) =>
@@ -169,7 +169,7 @@ test("uses one progressive timeline with independent multi-line toggles", async 
     expect(timing.delay).toBeGreaterThanOrEqual(280);
     expect(timing.delay + timing.iconDuration).toBeLessThanOrEqual(860);
     expect(timing.delay + timing.tagDuration).toBeLessThanOrEqual(860);
-    expect(timing.overshoot).toBeGreaterThan(1);
+    expect(timing.overshoot).toBeGreaterThanOrEqual(1.22);
   }
   await expect(entranceRows.first().locator(".arrival-timeline-bus-marker")).toHaveCSS(
     "animation-name",
@@ -188,10 +188,12 @@ test("uses one progressive timeline with independent multi-line toggles", async 
   await expect(endpointGroup.locator(".arrival-timeline-bus-marker")).toHaveCount(
     2,
   );
-  await expect(endpointGroup.locator(".arrival-timeline-bus-marker").first()).toHaveCSS(
-    "background-color",
-    "rgb(183, 187, 185)",
-  );
+  await expect(
+    endpointGroup
+      .locator(".arrival-timeline-bus-marker")
+      .first()
+      .locator(".arrival-timeline-marker-face-disabled"),
+  ).toHaveCSS("background-color", "rgb(183, 187, 185)");
   await expect(endpointGroup).toHaveCSS(
     "--timeline-position",
     "100%",
@@ -284,25 +286,39 @@ test("uses one progressive timeline with independent multi-line toggles", async 
     .first()
     .locator("xpath=..")
     .locator(".arrival-timeline-bus-marker");
-  await expect(selectedBusMarker).toHaveCSS(
+  await expect(
+    selectedBusMarker.locator(".arrival-timeline-marker-face-disabled"),
+  ).toHaveCSS(
     "background-color",
     "rgb(183, 187, 185)",
   );
-  // The orange selection layer grows from the marker's bottom edge.
-  const selectionFill = await selectedBusMarker.evaluate((element) => {
-    const style = getComputedStyle(element, "::before");
+  // Selection rotates the orange enabled face into view.
+  const selectionFlip = await selectedBusMarker.evaluate((element) => {
+    const flipper = element.querySelector<HTMLElement>(
+      ".arrival-timeline-marker-flipper",
+    );
+    const enabledFace = element.querySelector<HTMLElement>(
+      ".arrival-timeline-marker-face-enabled",
+    );
+    if (!flipper || !enabledFace) return null;
+    const style = getComputedStyle(flipper);
     return {
-      animationDuration: style.animationDuration,
-      animationName: style.animationName,
-      backgroundColor: style.backgroundColor,
-      fillHeight: Number.parseFloat(style.height),
-      originY: Number.parseFloat(style.transformOrigin.split(" ")[1]),
+      backgroundColor: getComputedStyle(enabledFace).backgroundColor,
+      transitionDuration: style.transitionDuration,
     };
   });
-  expect(selectionFill.animationName).toBe("bus-select-fill");
-  expect(selectionFill.animationDuration).toBe("0.24s");
-  expect(selectionFill.backgroundColor).toBe("rgb(229, 86, 47)");
-  expect(selectionFill.originY).toBeCloseTo(selectionFill.fillHeight, 1);
+  expect(selectionFlip).not.toBeNull();
+  expect(selectionFlip!.transitionDuration).toBe("0.72s");
+  expect(selectionFlip!.backgroundColor).toBe("rgb(229, 86, 47)");
+  await expect
+    .poll(() =>
+      selectedBusMarker
+        .locator(".arrival-timeline-marker-flipper")
+        .evaluate(
+          (element) => new DOMMatrix(getComputedStyle(element).transform).m11,
+        ),
+    )
+    .toBeCloseTo(-1, 5);
   const selectedEndpointRow = page
     .getByRole("button", {
       name: /Disable notifications for line 218, 23 minutes away/,
@@ -340,9 +356,13 @@ test("uses one progressive timeline with independent multi-line toggles", async 
   const endpointMarker = selectedEndpointRow.locator(
     ".arrival-timeline-bus-marker",
   );
+  const endpointMarkerFace = endpointMarker.locator(
+    ".arrival-timeline-marker-face-enabled",
+  );
   const endpointTag = selectedEndpointRow.locator(".arrival-bus");
   // Both bus hit targets share the same restrained hover elevation.
-  const defaultMarkerShadow = await endpointMarker.evaluate(
+  await page.getByRole("heading", { name: "Athens Bus Tracker" }).hover();
+  const defaultMarkerShadow = await endpointMarkerFace.evaluate(
     (element) => getComputedStyle(element).boxShadow,
   );
   const defaultTagShadow = await endpointTag.evaluate(
@@ -351,7 +371,7 @@ test("uses one progressive timeline with independent multi-line toggles", async 
   await endpointMarker.hover();
   await expect
     .poll(() =>
-      endpointMarker.evaluate(
+      endpointMarkerFace.evaluate(
         (element) => getComputedStyle(element).boxShadow,
       ),
     )
@@ -361,7 +381,7 @@ test("uses one progressive timeline with independent multi-line toggles", async 
       endpointTag.evaluate((element) => getComputedStyle(element).boxShadow),
     )
     .not.toBe(defaultTagShadow);
-  await expect(endpointMarker).toHaveCSS(
+  await expect(endpointMarkerFace).toHaveCSS(
     "box-shadow",
     "rgba(23, 32, 27, 0.22) 0px 2px 5px 0px",
   );
@@ -373,7 +393,7 @@ test("uses one progressive timeline with independent multi-line toggles", async 
   await endpointTag.hover();
   await expect
     .poll(() =>
-      endpointMarker.evaluate(
+      endpointMarkerFace.evaluate(
         (element) => getComputedStyle(element).boxShadow,
       ),
     )
@@ -420,6 +440,17 @@ test("uses one progressive timeline with independent multi-line toggles", async 
   await expect(
     page.getByRole("button", { name: /Enable notifications for line 218/ }),
   ).toHaveCount(3);
+  await expect
+    .poll(() =>
+      page
+        .getByRole("button", { name: /Enable tracking for line 218/ })
+        .first()
+        .locator(".arrival-timeline-marker-flipper")
+        .evaluate(
+          (element) => new DOMMatrix(getComputedStyle(element).transform).m11,
+        ),
+    )
+    .toBeCloseTo(1, 5);
   await expect(disable500).toHaveCount(2);
   await expect(
     page.getByRole("button", { name: /Enable notifications for line 218/ }).last(),

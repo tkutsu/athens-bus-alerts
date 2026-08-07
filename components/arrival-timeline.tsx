@@ -48,6 +48,24 @@ export interface ArrivalEntranceTiming {
   tagDurationMs: number;
 }
 
+function BusIcon() {
+  return (
+    <svg
+      className="arrival-timeline-bus-icon"
+      fill="none"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="1.8"
+      viewBox="0 0 24 24"
+    >
+      <rect x="4" y="3" width="16" height="16" rx="2" />
+      <path d="M8 6v6m8-6v6M6 17h12M7 21v-2m10 2v-2" />
+      <path d="M8 15h.01M16 15h.01" />
+    </svg>
+  );
+}
+
 /** Produces stable staggered timing without allowing entrances past the line draw. */
 export function arrivalEntranceTiming(
   vehicleKey: string,
@@ -69,7 +87,7 @@ export function arrivalEntranceTiming(
   return {
     delayMs,
     iconDurationMs,
-    overshootScale: 1.08 + (hash(3) % 7) / 100,
+    overshootScale: 1.22 + (hash(3) % 13) / 100,
     tagDurationMs: 180 + (hash(4) % 81),
   };
 }
@@ -405,20 +423,17 @@ export function ArrivalTimeline({
                         title={`${selected ? "Disable" : "Enable"} line ${lineName}`}
                         type="button"
                       >
-                        <svg
+                        <span
                           aria-hidden="true"
-                          className="arrival-timeline-bus-icon"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth="1.8"
-                          viewBox="0 0 24 24"
+                          className="arrival-timeline-marker-flipper"
                         >
-                          <rect x="4" y="3" width="16" height="16" rx="2" />
-                          <path d="M8 6v6m8-6v6M6 17h12M7 21v-2m10 2v-2" />
-                          <path d="M8 15h.01M16 15h.01" />
-                        </svg>
+                          <span className="arrival-timeline-marker-face arrival-timeline-marker-face-disabled">
+                            <BusIcon />
+                          </span>
+                          <span className="arrival-timeline-marker-face arrival-timeline-marker-face-enabled">
+                            <BusIcon />
+                          </span>
+                        </span>
                       </button>
                       <button
                         aria-label={`${
