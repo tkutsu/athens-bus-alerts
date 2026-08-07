@@ -2,16 +2,47 @@
 @import "leaflet/dist/leaflet.css";
 
 @theme inline {
-  --color-paper: #f4f2ec;
-  --color-ink: #17201b;
-  --color-signal: #e5562f;
+  --color-paper: var(--paper);
+  --color-ink: var(--ink);
+  --color-signal: var(--signal);
   --font-display: var(--font-display);
   --font-mono: var(--font-mono);
 }
 
 :root {
+  color-scheme: light;
+  --paper: #f4f2ec;
+  --paper-rgb: 244 242 236;
+  --ink: #17201b;
+  --ink-rgb: 23 32 27;
+  --signal: #e5562f;
+  --signal-rgb: 229 86 47;
+  --surface-rgb: 255 255 255;
+  --shadow-rgb: 23 32 27;
+  --texture-rgb: 116 96 64;
+  --muted-marker: #b7bbb9;
+  --toast-error: #f3e3dc;
+  --toast-error-ink: #7f1d1d;
+  --toast-neutral: #e5e1d7;
   --font-display: "Avenir Next", Avenir, "Segoe UI", sans-serif;
   --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+  --paper: #111713;
+  --paper-rgb: 17 23 19;
+  --ink: #e8ebe2;
+  --ink-rgb: 232 235 226;
+  --signal: #ff7654;
+  --signal-rgb: 255 118 84;
+  --surface-rgb: 42 52 46;
+  --shadow-rgb: 0 0 0;
+  --texture-rgb: 181 196 186;
+  --muted-marker: #59635d;
+  --toast-error: #3b211d;
+  --toast-error-ink: #ffc5b8;
+  --toast-neutral: #27312b;
 }
 
 * {
@@ -19,19 +50,19 @@
 }
 
 html {
-  background: #f4f2ec;
+  background: var(--paper);
 }
 
 body {
   margin: 0;
   overflow: hidden;
-  color: #17201b;
+  color: var(--ink);
   cursor: default;
   background:
     repeating-linear-gradient(
       135deg,
-      rgb(23 32 27 / 0.016) 0,
-      rgb(23 32 27 / 0.016) 1px,
+      rgb(var(--ink-rgb) / 0.016) 0,
+      rgb(var(--ink-rgb) / 0.016) 1px,
       transparent 1px,
       transparent 12px
     ),
@@ -39,11 +70,11 @@ body {
       72deg,
       transparent 0,
       transparent 31px,
-      rgb(116 96 64 / 0.008) 32px,
+      rgb(var(--texture-rgb) / 0.012) 32px,
       transparent 33px,
       transparent 47px
     ),
-    #f4f2ec;
+    var(--paper);
   font-family: "Avenir Next", Avenir, "Segoe UI", sans-serif;
 }
 
@@ -71,7 +102,7 @@ input:focus-visible,
 select:focus-visible,
 textarea:focus-visible,
 summary:focus-visible {
-  outline: 2px solid #e5562f;
+  outline: 2px solid var(--signal);
   outline-offset: 2px;
 }
 
@@ -94,6 +125,7 @@ textarea:disabled {
 
   .field {
     @apply h-11 w-full border border-ink/20 bg-white/55 px-3 text-sm text-ink outline-none transition focus:border-signal;
+    background: rgb(var(--surface-rgb) / 0.55);
   }
 
   .primary-button {
@@ -106,6 +138,7 @@ textarea:disabled {
 
   .secondary-button:not(:disabled):hover {
     @apply border-ink bg-white/40;
+    background: rgb(var(--surface-rgb) / 0.4);
   }
 
   .danger-button {
@@ -126,6 +159,15 @@ textarea:disabled {
 
 }
 
+[data-theme="dark"] .danger-button {
+  border-color: #f47c68;
+  color: #ffb4a6;
+}
+
+[data-theme="dark"] .danger-button:not(:disabled):hover {
+  background: rgb(244 124 104 / 0.12);
+}
+
 .favorites-dialog {
   width: min(34rem, calc(100% - 2rem));
   max-width: none;
@@ -134,22 +176,101 @@ textarea:disabled {
   padding: 0;
   overflow: visible;
   border: 0;
-  color: #17201b;
+  color: var(--ink);
   background: transparent;
 }
 
 .favorites-dialog::backdrop {
-  background: rgb(23 32 27 / 0.56);
+  background: rgb(0 0 0 / 0.64);
   backdrop-filter: blur(2px);
 }
 
 .favorites-sheet {
   max-height: calc(100dvh - 2rem);
   overflow: visible;
-  border: 1px solid rgb(23 32 27 / 0.18);
-  background: #f4f2ec;
+  border: 1px solid rgb(var(--ink-rgb) / 0.18);
+  background: var(--paper);
   padding: 1rem;
-  box-shadow: 0 20px 60px rgb(23 32 27 / 0.28);
+  box-shadow: 0 20px 60px rgb(0 0 0 / 0.32);
+}
+
+.theme-switch {
+  position: relative;
+  display: inline-flex;
+  width: 3rem;
+  height: 1.625rem;
+  align-items: center;
+  justify-content: space-between;
+  border: 1px solid rgb(var(--ink-rgb) / 0.22);
+  border-radius: 999px;
+  background: rgb(var(--surface-rgb) / 0.46);
+  padding: 0 0.3rem;
+  color: rgb(var(--ink-rgb) / 0.55);
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease;
+}
+
+.theme-switch:hover {
+  border-color: rgb(var(--ink-rgb) / 0.48);
+}
+
+.theme-switch-icon {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  transition: color 160ms ease;
+}
+
+.theme-switch-sun,
+[data-theme="dark"] .theme-switch-moon {
+  color: var(--paper);
+}
+
+.theme-switch-moon,
+[data-theme="dark"] .theme-switch-sun {
+  color: rgb(var(--ink-rgb) / 0.5);
+}
+
+.theme-switch-thumb {
+  position: absolute;
+  top: 0.1875rem;
+  left: 0.1875rem;
+  width: 1.125rem;
+  height: 1.125rem;
+  border-radius: 999px;
+  background: var(--ink);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.24);
+  transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+[data-theme="dark"] .theme-switch-thumb {
+  transform: translateX(1.375rem);
+}
+
+.stop-map-shell {
+  background: rgb(var(--surface-rgb) / 0.4);
+}
+
+[data-theme="dark"] .leaflet-tile-pane {
+  filter: brightness(0.72) invert(1) contrast(0.88) hue-rotate(180deg) saturate(0.7);
+}
+
+[data-theme="dark"] .leaflet-control-attribution {
+  color: rgb(var(--ink-rgb) / 0.7);
+  background: rgb(var(--paper-rgb) / 0.82);
+}
+
+[data-theme="dark"] .leaflet-control-attribution a {
+  color: var(--signal);
+}
+
+[data-theme="dark"] .leaflet-bar a,
+[data-theme="dark"] .leaflet-bar a:hover {
+  border-bottom-color: rgb(var(--ink-rgb) / 0.18);
+  background: var(--paper);
+  color: var(--ink);
 }
 
 .small-action {
@@ -172,10 +293,10 @@ textarea:disabled {
   min-height: 4.5rem;
   align-items: center;
   gap: 0.75rem;
-  border: 1px solid rgb(23 32 27 / 0.2);
-  background: rgb(255 255 255 / 0.34);
+  border: 1px solid rgb(var(--ink-rgb) / 0.2);
+  background: rgb(var(--surface-rgb) / 0.34);
   padding: 0.75rem 1rem;
-  color: #17201b;
+  color: var(--ink);
   transition:
     border-color 160ms ease,
     background-color 160ms ease;
@@ -213,7 +334,7 @@ textarea:disabled {
 }
 
 .selected-stop-disclosure-open .selected-stop-row {
-  background: rgb(255 255 255 / 0.5);
+  background: rgb(var(--surface-rgb) / 0.5);
 }
 
 .selected-stop-marker {
@@ -224,17 +345,17 @@ textarea:disabled {
   height: 1.5rem;
   flex: 0 0 auto;
   place-items: center;
-  border: 2px solid #17201b;
+  border: 2px solid var(--ink);
   border-radius: 999px;
-  background: #f4f2ec;
-  box-shadow: 0 0 0 3px #f4f2ec;
+  background: var(--paper);
+  box-shadow: 0 0 0 3px var(--paper);
 }
 
 .selected-stop-marker::after {
   width: 0.55rem;
   height: 0.55rem;
   border-radius: 999px;
-  background: #e5562f;
+  background: var(--signal);
   content: "";
 }
 
@@ -245,7 +366,7 @@ textarea:disabled {
   left: calc(1.75rem - 1px);
   z-index: 1;
   width: 2px;
-  background: #e5562f;
+  background: var(--signal);
   transform-origin: top;
   /* Continue the map collapse into the short connector before drawing the rail. */
   animation: transit-line-enter 100ms cubic-bezier(0.22, 1, 0.36, 1) 280ms both;
@@ -253,8 +374,8 @@ textarea:disabled {
 }
 
 .selected-stop-row:hover {
-  border-color: rgb(23 32 27 / 0.55);
-  background: rgb(255 255 255 / 0.5);
+  border-color: rgb(var(--ink-rgb) / 0.55);
+  background: rgb(var(--surface-rgb) / 0.5);
 }
 
 .arrival-timeline-section {
@@ -271,7 +392,7 @@ textarea:disabled {
   position: relative;
   min-height: 0;
   flex: 1 1 auto;
-  border-bottom: 1px solid rgb(23 32 27 / 0.12);
+  border-bottom: 1px solid rgb(var(--ink-rgb) / 0.12);
 }
 
 .arrival-timeline-rail {
@@ -281,7 +402,7 @@ textarea:disabled {
   left: calc(var(--timeline-axis) - 1px);
   z-index: 1;
   width: 2px;
-  background: #e5562f;
+  background: var(--signal);
   transform-origin: top;
   /* Begin exactly when the 100ms stop connector finishes drawing. */
   animation: transit-line-enter 480ms cubic-bezier(0.22, 1, 0.36, 1) 380ms both;
@@ -336,12 +457,12 @@ textarea:disabled {
   overflow: hidden;
   isolation: isolate;
   place-items: center;
-  border: 2px solid #f4f2ec;
+  border: 2px solid var(--paper);
   border-radius: 999px;
-  background: #b7bbb9;
+  background: var(--muted-marker);
   padding: 0;
   color: white;
-  box-shadow: 0 1px 4px rgb(23 32 27 / 0.18);
+  box-shadow: 0 1px 4px rgb(var(--shadow-rgb) / 0.18);
   transform: translateY(-50%) translateZ(0);
   transform-style: preserve-3d;
   transition: box-shadow 140ms ease;
@@ -352,7 +473,7 @@ textarea:disabled {
   position: absolute;
   inset: 0;
   z-index: 0;
-  background: #e5562f;
+  background: var(--signal);
   content: "";
   transform: scaleY(0);
   transform-origin: 50% 100%;
@@ -372,11 +493,11 @@ textarea:disabled {
   )
   .arrival-timeline-bus-marker {
   /* Keep the shared hover elevation subtle around the compact bus icon. */
-  box-shadow: 0 2px 5px rgb(23 32 27 / 0.22);
+  box-shadow: 0 2px 5px rgb(var(--shadow-rgb) / 0.22);
 }
 
 .arrival-timeline-bus-marker-selected {
-  background: #b7bbb9;
+  background: var(--muted-marker);
 }
 
 /* Fill a newly selected marker from its bottom edge to its top. */
@@ -402,11 +523,11 @@ textarea:disabled {
   min-height: 2.25rem;
   align-items: center;
   gap: 0.55rem;
-  border: 1px solid rgb(23 32 27 / 0.25);
-  background: rgb(255 255 255 / 0.72);
+  border: 1px solid rgb(var(--ink-rgb) / 0.25);
+  background: rgb(var(--surface-rgb) / 0.72);
   padding: 0.35rem 0.55rem;
-  color: #17201b;
-  box-shadow: 0 2px 7px rgb(23 32 27 / 0.07);
+  color: var(--ink);
+  box-shadow: 0 2px 7px rgb(var(--shadow-rgb) / 0.07);
   transition:
     opacity 160ms ease,
     transform 160ms ease,
@@ -436,15 +557,15 @@ textarea:disabled {
   )
   .arrival-bus {
   /* Match the icon with a restrained, slightly wider tag shadow. */
-  box-shadow: 0 3px 8px rgb(23 32 27 / 0.12);
+  box-shadow: 0 3px 8px rgb(var(--shadow-rgb) / 0.12);
 }
 
 .arrival-bus-selected {
   z-index: 3;
-  border: 1px solid #e5562f;
-  background: #e5562f;
+  border: 1px solid var(--signal);
+  background: var(--signal);
   color: white;
-  box-shadow: 0 5px 14px rgb(229 86 47 / 0.22);
+  box-shadow: 0 5px 14px rgb(var(--signal-rgb) / 0.22);
   transform: scale(1.06);
 }
 
@@ -454,9 +575,9 @@ textarea:disabled {
 }
 
 .arrival-bus-muted {
-  border-color: rgb(23 32 27 / 0.28);
-  background: rgb(255 255 255 / 0.34);
-  color: rgb(23 32 27 / 0.46);
+  border-color: rgb(var(--ink-rgb) / 0.28);
+  background: rgb(var(--surface-rgb) / 0.34);
+  color: rgb(var(--ink-rgb) / 0.46);
   box-shadow: none;
 }
 
@@ -473,8 +594,8 @@ textarea:disabled {
 
 .urgent-toast {
   box-shadow:
-    0 14px 36px rgb(23 32 27 / 0.3),
-    0 0 0 4px rgb(229 86 47 / 0.16);
+    0 14px 36px rgb(0 0 0 / 0.34),
+    0 0 0 4px rgb(var(--signal-rgb) / 0.16);
   animation: urgent-toast-in 240ms ease-out both;
 }
 
@@ -572,7 +693,10 @@ textarea:disabled {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .small-action {
+  .small-action,
+  .theme-switch,
+  .theme-switch-icon,
+  .theme-switch-thumb {
     transition: none;
   }
 

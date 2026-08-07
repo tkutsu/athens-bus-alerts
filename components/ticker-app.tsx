@@ -7,6 +7,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 import {
   evaluateSubscriptions,
@@ -54,7 +55,7 @@ function Icon({
   name,
   className = "size-5",
 }: {
-  name: "bus" | "star";
+  name: "bus" | "moon" | "star" | "sun";
   className?: string;
 }) {
   const paths = {
@@ -68,6 +69,13 @@ function Icon({
     star: (
       <path d="m12 2 3.1 6.3 6.9 1-5 4.9 1.2 6.8-6.2-3.2L5.8 21 7 14.2l-5-4.9 6.9-1z" />
     ),
+    sun: (
+      <>
+        <circle cx="12" cy="12" r="3.5" />
+        <path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+      </>
+    ),
+    moon: <path d="M20.2 15.3A8.5 8.5 0 0 1 8.7 3.8 8.5 8.5 0 1 0 20.2 15.3Z" />,
   };
 
   return (
@@ -84,6 +92,69 @@ function Icon({
     >
       {paths[name]}
     </svg>
+  );
+}
+
+type Theme = "light" | "dark";
+const THEME_CHANGE_EVENT = "oasa-theme-change";
+
+function currentTheme(): Theme | null {
+  if (typeof document === "undefined") return null;
+  return document.documentElement.dataset.theme === "dark"
+    ? "dark"
+    : "light";
+}
+
+function subscribeToTheme(onThemeChange: () => void) {
+  window.addEventListener(THEME_CHANGE_EVENT, onThemeChange);
+  return () => window.removeEventListener(THEME_CHANGE_EVENT, onThemeChange);
+}
+
+/** Applies and persists the user's explicit color-theme choice. */
+function ThemeSwitch() {
+  const theme = useSyncExternalStore(
+    subscribeToTheme,
+    currentTheme,
+    () => null,
+  );
+
+  const toggleTheme = () => {
+    const root = document.documentElement;
+    const currentTheme = root.dataset.theme === "dark" ? "dark" : "light";
+    const nextTheme: Theme = currentTheme === "dark" ? "light" : "dark";
+    root.dataset.theme = nextTheme;
+    try {
+      window.localStorage.setItem("oasa-theme", nextTheme);
+    } catch {
+      // The active theme still works when storage is unavailable.
+    }
+    window.dispatchEvent(new Event(THEME_CHANGE_EVENT));
+  };
+
+  const dark = theme === "dark";
+
+  return (
+    <button
+      aria-checked={dark}
+      aria-label={
+        theme ? `Use ${dark ? "light" : "dark"} mode` : "Toggle color theme"
+      }
+      className="theme-switch"
+      onClick={toggleTheme}
+      role="switch"
+      title={
+        theme ? `Use ${dark ? "light" : "dark"} mode` : "Toggle color theme"
+      }
+      type="button"
+    >
+      <span aria-hidden="true" className="theme-switch-icon theme-switch-sun">
+        <Icon className="size-3.5" name="sun" />
+      </span>
+      <span aria-hidden="true" className="theme-switch-icon theme-switch-moon">
+        <Icon className="size-3.5" name="moon" />
+      </span>
+      <span aria-hidden="true" className="theme-switch-thumb" />
+    </button>
   );
 }
 
@@ -121,10 +192,10 @@ function Toast({
       aria-live={isError || isUrgent ? "assertive" : "polite"}
       className={`pointer-events-none fixed bottom-20 left-1/2 z-[1000] flex w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 items-start gap-3 overflow-hidden px-4 py-3 text-sm shadow-lg ${
         isError
-          ? "border border-red-700/20 bg-[#f3e3dc] text-red-900"
+          ? "border border-red-700/20 bg-[var(--toast-error)] text-[var(--toast-error-ink)]"
           : isUrgent
             ? "urgent-toast border-2 border-ink bg-signal font-bold text-white"
-          : "border border-ink/15 bg-[#e5e1d7] text-ink"
+          : "border border-ink/15 bg-[var(--toast-neutral)] text-ink"
       }`}
       role={isError || isUrgent ? "alert" : "status"}
     >
@@ -1012,9 +1083,14 @@ export function TickerApp() {
         />
       )}
 
-      <footer className="mt-auto flex shrink-0 flex-wrap items-center justify-between gap-3 pt-3 text-xs text-ink/45">
+      <footer className="mt-auto grid shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-3 pt-3 text-xs text-ink/45">
         <p>Live data by OASA</p>
-        <button className="small-action underline" onClick={forgetEverything} type="button">
+        <ThemeSwitch />
+        <button
+          className="small-action justify-self-end underline"
+          onClick={forgetEverything}
+          type="button"
+        >
           Forget saved data
         </button>
       </footer>
