@@ -302,7 +302,10 @@ export function TickerApp() {
     data: arrivalData,
     error: arrivalError,
     isLoading: arrivalsLoading,
-  } = useArrivalPolling(selectedStop?.code ?? null, selectedRouteCodes);
+  } = useArrivalPolling(
+    pickerOpen ? null : (selectedStop?.code ?? null),
+    selectedRouteCodes,
+  );
   const {
     stops: catalogStops,
     error: catalogError,
