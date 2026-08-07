@@ -14,6 +14,7 @@ import {
   type AlertEvent,
   type CandidateArrival,
 } from "@/lib/alerts";
+import { isAbortError } from "@/lib/client-api";
 import { haversineMeters } from "@/lib/distance";
 import {
   clearStoredState,
@@ -21,17 +22,15 @@ import {
   readStoredState,
   writeStoredState,
 } from "@/lib/storage";
+import { StopRouteLoader } from "@/lib/stop-routes";
 import { formatTransitName } from "@/lib/display";
 import type {
-  ApiErrorPayload,
   Coordinates,
   Favorite,
   LineSubscription,
-  ServingLine,
   ServingRoute,
   StopSummary,
 } from "@/lib/types";
-import { dedupeArrivals } from "@/lib/arrivals";
 import { findClosestStops, searchStopNames } from "@/lib/stop-catalog";
 import { useArrivalPolling } from "@/hooks/use-arrival-polling";
 import { useStopCatalog } from "@/hooks/use-stop-catalog";
@@ -42,14 +41,7 @@ import {
   type TimelineArrival,
 } from "@/components/arrival-timeline";
 
-interface StopDetailsPayload {
-  stop: StopSummary;
-  routes: ServingRoute[];
-  lines: ServingLine[];
-}
-
 const TOAST_DISMISS_MS = 5_000;
-const LOCATION_REFRESH_MS = 20_000;
 
 function Icon({
   name,
@@ -231,13 +223,6 @@ function Toast({
   );
 }
 
-async function responseError(response: Response): Promise<string> {
-  const payload = (await response.json().catch(() => null)) as
-    | ApiErrorPayload
-    | null;
-  return payload?.error.message ?? "The request could not be completed.";
-}
-
 function stopReference(stop: StopSummary) {
   return { code: stop.code, name: stop.name };
 }
@@ -270,6 +255,8 @@ export function TickerApp() {
   const [favorites, setFavorites] = useState<Favorite[]>([]);
   const [pickerOpen, setPickerOpen] = useState(true);
   const hydrationStartedRef = useRef(false);
+  const stopLoadVersionRef = useRef(0);
+  const stopRouteLoaderRef = useRef(new StopRouteLoader());
   const coordinatesRef = useRef<Coordinates | null>(null);
   const locationDeniedRef = useRef(false);
   const [status, setStatus] = useState<string | null>(null);
@@ -338,22 +325,41 @@ export function TickerApp() {
         Partial<StopSummary>,
       requestedSubscriptions?: LineSubscription[],
     ): Promise<{ stop: StopSummary; validLineIds: string[] } | null> => {
+      const loadVersion = ++stopLoadVersionRef.current;
       setIsLoadingStop(true);
       setError(null);
 
       try {
-        const response = await fetch(`/api/stops/${requestedStop.code}`, {
-          cache: "no-store",
-        });
-        if (!response.ok) throw new Error(await responseError(response));
+        const catalogStop = catalogStops.find(
+          (stop) => stop.code === requestedStop.code,
+        );
+        const latitude = requestedStop.latitude ?? catalogStop?.latitude;
+        const longitude = requestedStop.longitude ?? catalogStop?.longitude;
+        if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+          throw new Error("That stop is no longer in the stop catalogue.");
+        }
 
-        const payload = (await response.json()) as StopDetailsPayload;
+        const servingRoutes = await stopRouteLoaderRef.current.load(
+          requestedStop.code,
+        );
+
+        if (loadVersion !== stopLoadVersionRef.current) return null;
+
+        const stopCoordinates = { latitude: latitude!, longitude: longitude! };
         const distanceMeters =
-          coordinates && Number.isFinite(payload.stop.latitude)
-            ? haversineMeters(coordinates, payload.stop)
+          coordinates
+            ? haversineMeters(coordinates, stopCoordinates)
             : (requestedStop.distanceMeters ?? 0);
-        const stop = { ...payload.stop, distanceMeters };
-        const validLineIds = new Set(payload.lines.map((line) => line.lineId));
+        const stop: StopSummary = {
+          code: requestedStop.code,
+          name: requestedStop.name || catalogStop?.name || "Unknown",
+          street: requestedStop.street ?? null,
+          ...stopCoordinates,
+          distanceMeters,
+        };
+        const validLineIds = new Set(
+          servingRoutes.map((route) => route.lineId),
+        );
         const changingStop =
           selectedStopRef.current?.code !== undefined &&
           selectedStopRef.current.code !== stop.code;
@@ -373,7 +379,7 @@ export function TickerApp() {
 
         selectedStopRef.current = stop;
         setSelectedStop(stop);
-        setRoutes(payload.routes);
+        setRoutes(servingRoutes);
         updateSubscriptions(nextSubscriptions);
         setPickerOpen(false);
         return {
@@ -383,6 +389,12 @@ export function TickerApp() {
           ),
         };
       } catch (loadError) {
+        if (
+          isAbortError(loadError) ||
+          loadVersion !== stopLoadVersionRef.current
+        ) {
+          return null;
+        }
         setError(
           loadError instanceof Error
             ? loadError.message
@@ -390,15 +402,17 @@ export function TickerApp() {
         );
         return null;
       } finally {
-        setIsLoadingStop(false);
+        if (loadVersion === stopLoadVersionRef.current) {
+          setIsLoadingStop(false);
+        }
       }
     },
-    [coordinates, updateSubscriptions],
+    [catalogStops, coordinates, updateSubscriptions],
   );
 
   /* eslint-disable react-hooks/set-state-in-effect -- hydrate browser storage after SSR */
   useEffect(() => {
-    if (hydrationStartedRef.current) return;
+    if (hydrationStartedRef.current || catalogLoading) return;
     hydrationStartedRef.current = true;
 
     const stored = readStoredState();
@@ -416,12 +430,22 @@ export function TickerApp() {
     } else {
       setHydrated(true);
     }
+  }, [catalogLoading, loadStop, updateSubscriptions]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
+  useEffect(() => {
     if ("serviceWorker" in navigator) {
       void navigator.serviceWorker.register("/sw.js");
     }
-  }, [loadStop, updateSubscriptions]);
-  /* eslint-enable react-hooks/set-state-in-effect */
+  }, []);
+
+  useEffect(
+    () => () => {
+      stopLoadVersionRef.current += 1;
+      stopRouteLoaderRef.current.abort();
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!hydrated) return;
@@ -459,7 +483,7 @@ export function TickerApp() {
     const routeDetails = new Map(
       routes.map((route) => [route.routeCode, route]),
     );
-    return dedupeArrivals(arrivalData?.arrivals ?? []).flatMap((arrival) => {
+    return (arrivalData?.arrivals ?? []).flatMap((arrival) => {
       const route = routeDetails.get(arrival.routeCode);
       return route
         ? [
@@ -665,11 +689,7 @@ export function TickerApp() {
   useEffect(() => {
     if (!hydrated) return;
     const initialLocation = window.setTimeout(locate, 0);
-    const interval = window.setInterval(locate, LOCATION_REFRESH_MS);
-    return () => {
-      window.clearTimeout(initialLocation);
-      window.clearInterval(interval);
-    };
+    return () => window.clearTimeout(initialLocation);
   }, [hydrated, locate]);
 
   function chooseStop(stop: StopSummary) {
@@ -787,6 +807,9 @@ export function TickerApp() {
     if (!window.confirm("Forget the saved stop, favorites, and tracked lines?")) {
       return;
     }
+    stopLoadVersionRef.current += 1;
+    stopRouteLoaderRef.current.abort();
+    setIsLoadingStop(false);
     clearStoredState();
     selectedStopRef.current = null;
     setSelectedStop(null);
@@ -821,12 +844,17 @@ export function TickerApp() {
         </button>
       </header>
 
-      {selectedStop && (
-        <section
-          className={`selected-stop-disclosure ${
-            pickerOpen ? "selected-stop-disclosure-open" : ""
-          }`}
-        >
+      <section
+        aria-label={selectedStop ? undefined : "Choose a stop"}
+        className={
+          selectedStop
+            ? `selected-stop-disclosure ${
+                pickerOpen ? "selected-stop-disclosure-open" : ""
+              }`
+            : "min-h-0 flex-1 overflow-hidden"
+        }
+      >
+        {selectedStop && (
           <button
             aria-controls={`stop-picker-${selectedStop.code}`}
             aria-expanded={pickerOpen}
@@ -849,89 +877,53 @@ export function TickerApp() {
               {pickerOpen ? "Track" : "Change"}
             </span>
           </button>
-          <div
-            aria-hidden={!pickerOpen}
-            className="selected-stop-panel"
-            id={`stop-picker-${selectedStop.code}`}
-            inert={!pickerOpen}
-          >
-            <div className="selected-stop-panel-inner">
-              <StopMap
-                catalogError={catalogError}
-                catalogLoading={catalogLoading}
-                center={coordinates}
-                focusCenter={mapFocus}
-                isLocating={isLocating}
-                onRefreshLocation={() => locate(true)}
-                onSelectStop={chooseStop}
-                selectedStop={selectedStop}
-                stops={catalogStops}
-              />
-              {coordinates && (
-                <StopCombobox
-                  isLoading={
-                    catalogLoading ||
-                    isSearching ||
-                    (isLocating && nearbyStops.length === 0)
-                  }
-                  onQueryChange={setSearchQuery}
-                  onSelect={chooseStop}
-                  options={
-                    searchQuery.trim().length >= 2
-                      ? searchResult.stops
-                      : nearbyStops
-                  }
-                  query={searchQuery}
-                  resultTotal={
-                    searchQuery.trim().length >= 2
-                      ? searchResult.total
-                      : null
-                  }
-                />
-              )}
-            </div>
-          </div>
-        </section>
-      )}
-
-      {pickerOpen && !selectedStop ? (
-        <section
-          aria-label="Choose a stop"
-          className="min-h-0 flex-1 overflow-hidden"
+        )}
+        <div
+          aria-hidden={selectedStop ? !pickerOpen : undefined}
+          className={selectedStop ? "selected-stop-panel" : undefined}
+          id={selectedStop ? `stop-picker-${selectedStop.code}` : "stop-picker"}
+          inert={selectedStop ? !pickerOpen : false}
+          key="stop-picker-panel"
         >
-          <StopMap
-            catalogError={catalogError}
-            catalogLoading={catalogLoading}
-            center={coordinates}
-            focusCenter={mapFocus}
-            isLocating={isLocating}
-            onRefreshLocation={() => locate(true)}
-            onSelectStop={chooseStop}
-            selectedStop={selectedStop}
-            stops={catalogStops}
-          />
-          {coordinates && (
-            <StopCombobox
-              isLoading={
-                catalogLoading ||
-                isSearching ||
-                (isLocating && nearbyStops.length === 0)
-              }
-              onQueryChange={setSearchQuery}
-              onSelect={chooseStop}
-              options={
-                searchQuery.trim().length >= 2
-                  ? searchResult.stops
-                  : nearbyStops
-              }
-              query={searchQuery}
-              resultTotal={
-                searchQuery.trim().length >= 2 ? searchResult.total : null
-              }
+          <div
+            className={selectedStop ? "selected-stop-panel-inner" : undefined}
+          >
+            <StopMap
+              catalogError={catalogError}
+              catalogLoading={catalogLoading}
+              center={coordinates}
+              focusCenter={mapFocus}
+              isLocating={isLocating}
+              onRefreshLocation={() => locate(true)}
+              onSelectStop={chooseStop}
+              selectedStop={selectedStop}
+              stops={catalogStops}
             />
-          )}
-        </section>
-      ) : selectedStop && !pickerOpen ? (
+            {coordinates && (
+              <StopCombobox
+                isLoading={
+                  catalogLoading ||
+                  isSearching ||
+                  (isLocating && nearbyStops.length === 0)
+                }
+                onQueryChange={setSearchQuery}
+                onSelect={chooseStop}
+                options={
+                  searchQuery.trim().length >= 2
+                    ? searchResult.stops
+                    : nearbyStops
+                }
+                query={searchQuery}
+                resultTotal={
+                  searchQuery.trim().length >= 2 ? searchResult.total : null
+                }
+              />
+            )}
+          </div>
+        </div>
+      </section>
+
+      {selectedStop && !pickerOpen ? (
         <ArrivalTimeline
           arrivals={timelineArrivals}
           isLoading={arrivalsLoading || isLoadingStop}

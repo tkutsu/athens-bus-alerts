@@ -1,17 +1,13 @@
 import type { z } from "zod";
 import {
   arrivalsResponseSchema,
-  closestStopsResponseSchema,
   routesResponseSchema,
-  stopDetailsResponseSchema,
 } from "@/lib/oasa/schemas";
 
 const OASA_API_URL = "https://telematics.oasa.gr/api/";
 const TIMEOUT_MS = 8_000;
 
 type OasaAction =
-  | "getClosestStops"
-  | "getStopNameAndXY"
   | "webRoutesForStop"
   | "getStopArrivals";
 
@@ -83,24 +79,6 @@ async function requestOasa<T>(
   }
 
   return parsed.data;
-}
-
-/** Gets OASA stop candidates near a coordinate. */
-export function getClosestStops(latitude: number, longitude: number) {
-  return requestOasa(
-    "getClosestStops",
-    closestStopsResponseSchema,
-    [String(latitude), String(longitude)],
-  );
-}
-
-/** Gets one stop's name and position. */
-export function getStopDetails(stopCode: string) {
-  return requestOasa(
-    "getStopNameAndXY",
-    stopDetailsResponseSchema,
-    [stopCode],
-  );
 }
 
 /** Gets routes that serve one stop. */

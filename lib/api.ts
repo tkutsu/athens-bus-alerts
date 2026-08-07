@@ -1,33 +1,6 @@
 import { NextResponse } from "next/server";
 import { OasaRequestError } from "@/lib/oasa/client";
-import type { ApiErrorPayload, Coordinates } from "@/lib/types";
-
-const ATTICA_BOUNDS = {
-  minLatitude: 37.5,
-  maxLatitude: 38.5,
-  minLongitude: 22.7,
-  maxLongitude: 24.5,
-};
-
-export function parseCoordinates(
-  searchParams: URLSearchParams,
-): Coordinates | null {
-  const latitude = Number(searchParams.get("lat"));
-  const longitude = Number(searchParams.get("lng"));
-
-  if (
-    !Number.isFinite(latitude) ||
-    !Number.isFinite(longitude) ||
-    latitude < ATTICA_BOUNDS.minLatitude ||
-    latitude > ATTICA_BOUNDS.maxLatitude ||
-    longitude < ATTICA_BOUNDS.minLongitude ||
-    longitude > ATTICA_BOUNDS.maxLongitude
-  ) {
-    return null;
-  }
-
-  return { latitude, longitude };
-}
+import type { ApiErrorPayload } from "@/lib/types";
 
 export function isStopCode(value: string): boolean {
   return /^\d{1,8}$/.test(value);
