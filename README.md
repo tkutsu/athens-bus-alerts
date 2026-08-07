@@ -1,8 +1,13 @@
-# Athens Bus Notifications
+# Athens Bus Tracker
 
 A compact, installable personal web app for nearby OASA bus stops, live
 arrivals, a clickable stop map, multi-line arrival alerts, and named favorite
 presets.
+
+Choose a stop once to open its live 15-minute arrival timeline. Every physical
+bus is shown separately, including buses sharing a line code. Tapping a bus
+toggles continuous tracking for that line: selected lines notify normally at
+one minute and urgently when due, then continue with the next bus on the line.
 
 **Live app:** [https://bus.themos.dev](https://bus.themos.dev)
 
