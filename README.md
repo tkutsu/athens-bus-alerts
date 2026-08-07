@@ -21,8 +21,9 @@ requests. Refresh the generated catalogue when the feed changes:
 pnpm sync:stops
 ```
 
-The catalogue only powers stop discovery. Live stop details, lines, and arrivals are
-always fetched from OASA Telematics through the Worker.
+The catalogue powers stop discovery and stop details. Serving routes and live
+arrivals are fetched from OASA Telematics through the Worker; route metadata is
+cached because it changes much less often than arrivals.
 
 ## Cloudflare Workers
 
