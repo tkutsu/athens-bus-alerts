@@ -2,12 +2,14 @@ import type { LineSubscription, RecentVehicle } from "@/lib/types";
 
 export interface CandidateArrival {
   lineId: string;
+  routeCode?: string;
   vehicleKey: string;
   minutes: number;
+  walkSeconds?: number;
 }
 
 export interface AlertEvent {
-  kind: "one-minute" | "zero";
+  kind: "leave-now" | "one-minute" | "zero";
   lineId: string;
   vehicleKey: string;
   minutes: number;
@@ -24,6 +26,17 @@ export const STALE_PREDICTION_GRACE_MS = 2 * 60_000;
 
 function predictedZeroAt(minutes: number, now: Date): string {
   return new Date(now.getTime() + minutes * 60_000).toISOString();
+}
+
+function predictedLeaveAt(
+  arrival: CandidateArrival,
+  now: Date,
+): string | null {
+  if (arrival.walkSeconds === undefined) return null;
+  return new Date(
+    now.getTime() +
+      Math.max(0, arrival.minutes * 60 - arrival.walkSeconds - 90) * 1_000,
+  ).toISOString();
 }
 
 function pruneRecentVehicles(
@@ -49,7 +62,9 @@ function beginTracking(
     return {
       ...subscription,
       trackedVehicleKey: null,
+      firedLeaveNow: false,
       firedOneMinute: false,
+      predictedLeaveAt: null,
       predictedZeroAt: null,
       lastObservedMinutes: null,
     };
@@ -58,7 +73,9 @@ function beginTracking(
   return {
     ...subscription,
     trackedVehicleKey: arrival.vehicleKey,
+    firedLeaveNow: preserveWarning && subscription.firedLeaveNow,
     firedOneMinute: preserveWarning && subscription.firedOneMinute,
+    predictedLeaveAt: predictedLeaveAt(arrival, now),
     predictedZeroAt: predictedZeroAt(arrival.minutes, now),
     lastObservedMinutes: arrival.minutes,
   };
@@ -108,6 +125,8 @@ export function evaluateSubscriptions(
       .filter(
         (arrival) =>
           arrival.lineId === subscription.lineId &&
+          (!subscription.routeCode ||
+            arrival.routeCode === subscription.routeCode) &&
           !recentKeys.has(arrival.vehicleKey),
       )
       .sort((a, b) => a.minutes - b.minutes);
@@ -123,12 +142,29 @@ export function evaluateSubscriptions(
     }
 
     if (!subscription.trackedVehicleKey) return subscription;
+    const trackedVehicleKey = subscription.trackedVehicleKey;
 
     const tracked = candidates.find(
-      (arrival) => arrival.vehicleKey === subscription.trackedVehicleKey,
+      (arrival) => arrival.vehicleKey === trackedVehicleKey,
     );
 
     if (!tracked) {
+      const leaveAt = subscription.predictedLeaveAt
+        ? new Date(subscription.predictedLeaveAt).getTime()
+        : null;
+      if (
+        leaveAt !== null &&
+        leaveAt <= now.getTime() &&
+        !subscription.firedLeaveNow
+      ) {
+        events.push({
+          kind: "leave-now",
+          lineId: subscription.lineId,
+          vehicleKey: trackedVehicleKey,
+          minutes: subscription.lastObservedMinutes ?? 0,
+        });
+        subscription = { ...subscription, firedLeaveNow: true };
+      }
       if (!subscription.predictedZeroAt) {
         return beginTracking(subscription, candidates[0], now);
       }
@@ -141,7 +177,7 @@ export function evaluateSubscriptions(
         events.push({
           kind: "zero",
           lineId: subscription.lineId,
-          vehicleKey: subscription.trackedVehicleKey,
+          vehicleKey: trackedVehicleKey,
           minutes: 0,
         });
       }
@@ -150,9 +186,27 @@ export function evaluateSubscriptions(
 
     subscription = {
       ...subscription,
+      predictedLeaveAt: predictedLeaveAt(tracked, now),
       predictedZeroAt: predictedZeroAt(tracked.minutes, now),
       lastObservedMinutes: tracked.minutes,
     };
+
+    const leaveAt = subscription.predictedLeaveAt
+      ? new Date(subscription.predictedLeaveAt).getTime()
+      : null;
+    if (
+      leaveAt !== null &&
+      leaveAt <= now.getTime() &&
+      !subscription.firedLeaveNow
+    ) {
+      events.push({
+        kind: "leave-now",
+        lineId: subscription.lineId,
+        vehicleKey: tracked.vehicleKey,
+        minutes: tracked.minutes,
+      });
+      subscription = { ...subscription, firedLeaveNow: true };
+    }
 
     if (tracked.minutes === 0) {
       events.push({

@@ -9,6 +9,7 @@ import {
   type CSSProperties,
 } from "react";
 import { formatTransitName } from "@/lib/display";
+import type { VehicleConfidence } from "@/lib/vehicle-confidence";
 
 export interface TimelineArrival {
   routeCode: string;
@@ -16,15 +17,19 @@ export interface TimelineArrival {
   vehicleKey: string;
   lineId: string;
   description: string;
+  destination?: string;
   minutes: number;
+  confidence?: VehicleConfidence;
 }
 
 interface ArrivalTimelineProps {
   arrivals: readonly TimelineArrival[];
   isLoading: boolean;
   observedAt: string | null;
-  onToggleLine: (lineId: string) => void;
-  selectedLineIds: readonly string[];
+  alternateVehicleKeys?: ReadonlySet<string>;
+  onOpenAlternate?: (routeCode: string) => void;
+  onToggleRoute: (routeCode: string, lineId: string) => void;
+  selectedRouteCodes: readonly string[];
 }
 
 interface ArrivalSnapshot {
@@ -62,6 +67,52 @@ function BusIcon() {
       <rect x="4" y="3" width="16" height="16" rx="2" />
       <path d="M8 6v6m8-6v6M6 17h12M7 21v-2m10 2v-2" />
       <path d="M8 15h.01M16 15h.01" />
+    </svg>
+  );
+}
+
+function TurtleIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="arrival-confidence-turtle"
+      fill="none"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="1.7"
+      viewBox="0 0 24 24"
+    >
+      <path d="M7 9.5c1.6-3 7.4-3 9 0 1.1 2.1.5 5.6-1.8 6.7H8.8C6.5 15.1 5.9 11.6 7 9.5Z" />
+      <path d="m7.2 10-2-1.4m1.7 6.5-1.8 1.3m9.8-6.6 2.5-1.2m-2.2 6.5 2 1.5M10 16.2l-.5 2m3.8-2 .6 2" />
+      <circle cx="18.8" cy="11.5" r="1.7" />
+      <path d="M19.4 11h.01" />
+    </svg>
+  );
+}
+
+function DirectionArrow() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="arrival-direction-arrow"
+      fill="none"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="1.35"
+      viewBox="0 0 14 10"
+    >
+      <path d="M3 5h8M8 2l3 3-3 3" />
+    </svg>
+  );
+}
+
+function FootstepsIcon() {
+  return (
+    <svg aria-hidden="true" fill="currentColor" viewBox="0 0 24 24">
+      <ellipse cx="8" cy="7" rx="2.8" ry="4.2" transform="rotate(-18 8 7)" />
+      <ellipse cx="15.8" cy="16.4" rx="2.8" ry="4.2" transform="rotate(-18 15.8 16.4)" />
     </svg>
   );
 }
@@ -174,8 +225,10 @@ export function ArrivalTimeline({
   arrivals,
   isLoading,
   observedAt,
-  onToggleLine,
-  selectedLineIds,
+  alternateVehicleKeys = new Set(),
+  onOpenAlternate,
+  onToggleRoute,
+  selectedRouteCodes,
 }: ArrivalTimelineProps) {
   const [now, setNow] = useState(() => Date.now());
   const [timelineHeight, setTimelineHeight] = useState(0);
@@ -186,9 +239,9 @@ export function ArrivalTimeline({
     null,
   );
   const [entranceActive, setEntranceActive] = useState(true);
-  const selectedLines = useMemo(
-    () => new Set(selectedLineIds),
-    [selectedLineIds],
+  const selectedRoutes = useMemo(
+    () => new Set(selectedRouteCodes),
+    [selectedRouteCodes],
   );
 
   useEffect(() => {
@@ -311,8 +364,8 @@ export function ArrivalTimeline({
             const orderedItems = [...group.items].sort(
               (a, b) =>
                 a.minutes - b.minutes ||
-                Number(selectedLines.has(b.lineId)) -
-                  Number(selectedLines.has(a.lineId)) ||
+                Number(selectedRoutes.has(b.routeCode)) -
+                  Number(selectedRoutes.has(a.routeCode)) ||
                 a.lineId.localeCompare(b.lineId, "en", { numeric: true }) ||
                 a.vehicleKey.localeCompare(b.vehicleKey),
             );
@@ -379,8 +432,8 @@ export function ArrivalTimeline({
                 style={groupStyle}
               >
                 {orderedItems.map((arrival) => {
-                  const selected = selectedLines.has(arrival.lineId);
-                  const muted = selectedLines.size > 0 && !selected;
+                  const selected = selectedRoutes.has(arrival.routeCode);
+                  const muted = selectedRoutes.size > 0 && !selected;
                   const flippedBack =
                     !atCutoff &&
                     correctionActive &&
@@ -390,6 +443,13 @@ export function ArrivalTimeline({
                     Math.ceil(arrival.minutes - elapsedMinutes),
                   );
                   const lineName = formatTransitName(arrival.lineId);
+                  const uncertain =
+                    arrival.confidence === "stale" ||
+                    arrival.confidence === "unconfirmed";
+                  const slipping = arrival.confidence === "slipping";
+                  const hasAlternate = alternateVehicleKeys.has(
+                    arrival.vehicleKey,
+                  );
                   const entranceTiming = arrivalEntranceTiming(
                     arrival.vehicleKey,
                   );
@@ -412,14 +472,22 @@ export function ArrivalTimeline({
                       <button
                         aria-label={`${
                           selected ? "Disable" : "Enable"
-                        } tracking for line ${lineName}, ${estimatedEta} minutes away`}
+                        } tracking for line ${lineName}, ${estimatedEta} minutes away${
+                          uncertain
+                            ? ", arrival is unconfirmed"
+                            : slipping
+                              ? ", ETA has slipped significantly"
+                              : ""
+                        }`}
                         aria-pressed={selected}
                         className={`arrival-timeline-bus-marker ${
                           selected
                             ? "arrival-timeline-bus-marker-selected"
                             : ""
                         }`}
-                        onClick={() => onToggleLine(arrival.lineId)}
+                        onClick={() =>
+                          onToggleRoute(arrival.routeCode, arrival.lineId)
+                        }
                         title={`${selected ? "Disable" : "Enable"} line ${lineName}`}
                         type="button"
                       >
@@ -434,7 +502,23 @@ export function ArrivalTimeline({
                             <BusIcon />
                           </span>
                         </span>
+                        {uncertain && (
+                          <span
+                            aria-hidden="true"
+                            className="arrival-confidence-indicator arrival-confidence-questions"
+                          >
+                            ??
+                          </span>
+                        )}
+                        {slipping && (
+                          <span className="arrival-confidence-indicator">
+                            <TurtleIcon />
+                          </span>
+                        )}
                       </button>
+                      <span className="arrival-bus-eta" aria-hidden="true">
+                        {estimatedEta === 0 ? "NOW" : `${estimatedEta}m`}
+                      </span>
                       <button
                         aria-label={`${
                           selected ? "Disable" : "Enable"
@@ -443,15 +527,31 @@ export function ArrivalTimeline({
                         className={`arrival-bus ${
                           selected ? "arrival-bus-selected" : ""
                         } ${muted ? "arrival-bus-muted" : ""}`}
-                        onClick={() => onToggleLine(arrival.lineId)}
+                        onClick={() =>
+                          onToggleRoute(arrival.routeCode, arrival.lineId)
+                        }
                         title={formatTransitName(arrival.description)}
                         type="button"
                       >
                         <span className="arrival-bus-code">{lineName}</span>
-                        <span className="arrival-bus-eta">
-                          {estimatedEta === 0 ? "NOW" : `${estimatedEta}m`}
+                        <DirectionArrow />
+                        <span className="arrival-bus-direction">
+                          {formatTransitName(
+                            arrival.destination ?? arrival.description,
+                          )}
                         </span>
                       </button>
+                      {hasAlternate && onOpenAlternate && (
+                        <button
+                          aria-label={`Better nearby stop for line ${lineName}`}
+                          className="arrival-footsteps"
+                          onClick={() => onOpenAlternate(arrival.routeCode)}
+                          title="Better nearby stop"
+                          type="button"
+                        >
+                          <FootstepsIcon />
+                        </button>
+                      )}
                     </div>
                   );
                 })}

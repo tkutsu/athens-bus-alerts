@@ -37,6 +37,11 @@ describe("stop route metadata", () => {
           routeCode: "2810",
           lineId: "218",
           description: "Piraeus - Dafni",
+          descriptionEl: "Piraeus - Dafni",
+          descriptionEn: "Piraeus - Dafni",
+          destination: "Dafni",
+          routeType: null,
+          routeDistanceMeters: null,
         },
       ],
     });
