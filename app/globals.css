@@ -253,6 +253,32 @@ textarea:disabled {
   background: rgb(var(--surface-rgb) / 0.4);
 }
 
+.stop-picker-shell {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  margin-top: 1rem;
+  overflow: hidden;
+  border: 1px solid rgb(var(--ink-rgb) / 0.2);
+  background: rgb(var(--surface-rgb) / 0.4);
+}
+
+.stop-picker-shell .stop-search-field {
+  border-right: 0;
+  border-bottom: 0;
+  border-left: 0;
+}
+
+.stop-picker-shell:focus-within {
+  border-color: var(--signal);
+}
+
+.stop-picker-shell .stop-search-field:focus-visible {
+  border-top-color: rgb(var(--ink-rgb) / 0.2);
+  outline: none;
+}
+
 [data-theme="dark"] .leaflet-tile-pane {
   filter: brightness(0.72) invert(1) contrast(0.88) hue-rotate(180deg) saturate(0.7);
 }
@@ -340,7 +366,7 @@ textarea:disabled {
   transition-delay: 0s;
 }
 
-.selected-stop-disclosure .stop-map-shell {
+.selected-stop-disclosure .stop-picker-shell {
   margin-top: -1px;
 }
 

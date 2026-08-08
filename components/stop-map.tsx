@@ -274,7 +274,7 @@ export function StopMap({
   }, [selectedStop]);
 
   return (
-    <div className="stop-map-shell relative z-0 mt-4 flex min-h-0 flex-1 overflow-hidden border border-ink/20 bg-white/40">
+    <div className="stop-map-shell relative z-0 flex min-h-0 flex-1 overflow-hidden bg-white/40">
       <div
         aria-label="Map of OASA bus stops"
         className="min-h-0 w-full flex-1"

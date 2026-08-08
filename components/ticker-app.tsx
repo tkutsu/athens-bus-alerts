@@ -967,37 +967,39 @@ export function TickerApp() {
                 : "flex min-h-0 flex-1 flex-col"
             }
           >
-            <StopMap
-              catalogError={catalogError}
-              catalogLoading={catalogLoading}
-              center={coordinates}
-              focusCenter={mapFocus}
-              isLocating={isLocating}
-              onRefreshLocation={() => locate(true)}
-              onSelectStop={chooseStop}
-              selectedStop={selectedStop}
-              stops={catalogStops}
-            />
-            {coordinates && (
-              <StopCombobox
-                isLoading={
-                  catalogLoading ||
-                  isSearching ||
-                  (isLocating && nearbyStops.length === 0)
-                }
-                onQueryChange={setSearchQuery}
-                onSelect={chooseStop}
-                options={
-                  searchQuery.trim().length >= 2
-                    ? searchResult.stops
-                    : nearbyStops
-                }
-                query={searchQuery}
-                resultTotal={
-                  searchQuery.trim().length >= 2 ? searchResult.total : null
-                }
+            <div className="stop-picker-shell">
+              <StopMap
+                catalogError={catalogError}
+                catalogLoading={catalogLoading}
+                center={coordinates}
+                focusCenter={mapFocus}
+                isLocating={isLocating}
+                onRefreshLocation={() => locate(true)}
+                onSelectStop={chooseStop}
+                selectedStop={selectedStop}
+                stops={catalogStops}
               />
-            )}
+              {coordinates && (
+                <StopCombobox
+                  isLoading={
+                    catalogLoading ||
+                    isSearching ||
+                    (isLocating && nearbyStops.length === 0)
+                  }
+                  onQueryChange={setSearchQuery}
+                  onSelect={chooseStop}
+                  options={
+                    searchQuery.trim().length >= 2
+                      ? searchResult.stops
+                      : nearbyStops
+                  }
+                  query={searchQuery}
+                  resultTotal={
+                    searchQuery.trim().length >= 2 ? searchResult.total : null
+                  }
+                />
+              )}
+            </div>
           </div>
         </div>
       </section>
