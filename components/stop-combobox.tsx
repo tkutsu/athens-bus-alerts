@@ -6,6 +6,7 @@ import { formatTransitName } from "@/lib/display";
 import type { StopSummary } from "@/lib/types";
 
 interface StopComboboxProps {
+  hasLocation: boolean;
   isLoading: boolean;
   onQueryChange: (query: string) => void;
   onSelect: (stop: StopSummary) => void;
@@ -16,6 +17,7 @@ interface StopComboboxProps {
 
 /** Combines nearby-stop selection and live name search in one control. */
 export function StopCombobox({
+  hasLocation,
   isLoading,
   onQueryChange,
   onSelect,
@@ -140,7 +142,11 @@ export function StopCombobox({
             </p>
           ) : options.length === 0 ? (
             <p className="px-3 py-4 text-sm text-ink/50">
-              {isSearch ? "No matching stops." : "No nearby stops found."}
+              {isSearch
+                ? "No matching stops."
+                : hasLocation
+                  ? "No nearby stops found."
+                  : "Search by name, or refresh your location for nearby stops."}
             </p>
           ) : (
             options.map((stop, index) => (
@@ -160,15 +166,18 @@ export function StopCombobox({
                   {!isSearch && `${index + 1}. `}
                   {formatTransitName(stop.name)}
                 </span>
-                <span className="shrink-0 font-mono text-xs text-ink/55">
-                  {formatDistance(stop.distanceMeters)}
-                </span>
+                {hasLocation && (
+                  <span className="shrink-0 font-mono text-xs text-ink/55">
+                    {formatDistance(stop.distanceMeters)}
+                  </span>
+                )}
               </button>
             ))
           )}
           {isSearch && resultTotal !== null && resultTotal > 0 && (
             <p className="border-t border-ink/10 px-3 py-2 text-xs text-ink/45">
-              Showing {options.length} of {resultTotal}, nearest first.
+              Showing {options.length} of {resultTotal}
+              {hasLocation ? ", nearest first." : "."}
             </p>
           )}
         </div>
