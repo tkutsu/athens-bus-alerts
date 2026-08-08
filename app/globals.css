@@ -373,6 +373,10 @@ textarea:disabled {
   content: "";
 }
 
+.selected-stop-row-no-arrivals[aria-expanded="false"]::after {
+  display: none;
+}
+
 .selected-stop-row:hover {
   border-color: rgb(var(--ink-rgb) / 0.55);
   background: rgb(var(--surface-rgb) / 0.5);
@@ -386,6 +390,17 @@ textarea:disabled {
   min-height: 0;
   flex: 1 1 auto;
   flex-direction: column;
+}
+
+.arrival-timeline-empty {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-size: 0.875rem;
+  color: rgb(var(--ink-rgb) / 0.45);
 }
 
 .arrival-timeline {
