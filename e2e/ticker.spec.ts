@@ -172,16 +172,50 @@ test("fills the picker viewport and keeps search results above the map", async (
   await expect(option).toBeVisible();
 
   const assertResultsOverlayMap = async () => {
-    const mapBox = await map.boundingBox();
-    const pickerBox = await picker.boundingBox();
-    const listBox = await page.getByRole("listbox").boundingBox();
-    expect(mapBox).not.toBeNull();
-    expect(pickerBox).not.toBeNull();
-    expect(listBox).not.toBeNull();
-    expect(listBox!.y + listBox!.height).toBeLessThanOrEqual(
-      pickerBox!.y,
+    const layout = await picker.evaluate((element) => {
+      const shell = element.closest(".stop-picker-shell");
+      const mapElement = shell?.querySelector<HTMLElement>(
+        '[aria-label="Map of OASA bus stops"]',
+      );
+      const list = shell?.querySelector<HTMLElement>('[role="listbox"]');
+      if (!shell || !mapElement || !list) return null;
+
+      const mapBox = mapElement.getBoundingClientRect();
+      const pickerBox = element.getBoundingClientRect();
+      const listBox = list.getBoundingClientRect();
+      return {
+        focusStyles: {
+          dividerColor: getComputedStyle(element).borderTopColor,
+          outlineStyle: getComputedStyle(element).outlineStyle,
+          shellBorderColor: getComputedStyle(shell).borderTopColor,
+        },
+        listBox: {
+          height: listBox.height,
+          y: listBox.y,
+        },
+        mapBox: {
+          height: mapBox.height,
+          y: mapBox.y,
+        },
+        pickerBox: {
+          y: pickerBox.y,
+        },
+      };
+    });
+    expect(layout).not.toBeNull();
+    expect(
+      Math.abs(
+        layout!.mapBox.y + layout!.mapBox.height - layout!.pickerBox.y,
+      ),
+    ).toBeLessThan(1);
+    expect(layout!.focusStyles.outlineStyle).toBe("none");
+    expect(layout!.focusStyles.dividerColor).not.toBe(
+      layout!.focusStyles.shellBorderColor,
     );
-    expect(listBox!.y).toBeGreaterThanOrEqual(mapBox!.y);
+    expect(layout!.listBox.y + layout!.listBox.height).toBeLessThanOrEqual(
+      layout!.pickerBox.y,
+    );
+    expect(layout!.listBox.y).toBeGreaterThanOrEqual(layout!.mapBox.y);
     expect(
       await option.evaluate((element) => {
         const box = element.getBoundingClientRect();
@@ -197,11 +231,14 @@ test("fills the picker viewport and keeps search results above the map", async (
   await assertResultsOverlayMap();
   await option.click();
   await expect(page.getByLabel("Bus arrivals")).toBeVisible();
+  await expect(map).toBeHidden();
+  await expect(picker).toBeHidden();
 
   await page
     .getByRole("button", { name: /hsap n\. falhroy.*change/i })
     .click();
   await expect(map).toBeVisible();
+  await expect(picker).toBeVisible();
   await expect
     .poll(async () => (await map.boundingBox())?.height ?? 0)
     .toBeGreaterThan(400);

@@ -55,7 +55,7 @@ export function StopCombobox({
   }
 
   return (
-    <div className="relative z-10 mt-3 shrink-0" ref={rootRef}>
+    <div className="relative z-10 shrink-0" ref={rootRef}>
       <label className="relative block">
         <span className="sr-only">Search and choose a stop</span>
         <svg
@@ -80,7 +80,7 @@ export function StopCombobox({
           aria-controls={listId}
           aria-expanded={isOpen}
           aria-label="Search and choose a stop"
-          className="field pl-9"
+          className="stop-search-field field pl-9"
           onChange={(event) => {
             onQueryChange(event.target.value);
             setActiveIndex(0);
