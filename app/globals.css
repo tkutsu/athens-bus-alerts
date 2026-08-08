@@ -450,7 +450,7 @@ textarea:disabled {
 .arrival-timeline-rail {
   position: absolute;
   top: -3px;
-  bottom: 3.25rem;
+  bottom: 0;
   left: calc(var(--timeline-axis) - 1px);
   z-index: 1;
   width: 2px;
@@ -461,6 +461,8 @@ textarea:disabled {
 }
 
 .arrival-timeline-group {
+  --arrival-group-translate-y: -50%;
+
   position: absolute;
   z-index: 2;
   right: 0;
@@ -470,8 +472,10 @@ textarea:disabled {
   flex-direction: column;
   gap: 0.25rem;
   perspective: 32rem;
-  transform: translateY(-50%);
-  transition: top 600ms linear;
+  transform: translateY(var(--arrival-group-translate-y));
+  transition:
+    top 600ms linear,
+    transform 600ms linear;
 }
 
 .arrival-timeline-group-forward {
@@ -485,7 +489,11 @@ textarea:disabled {
 }
 
 .arrival-timeline-group-static {
-  top: calc(100% - 3.25rem);
+  --arrival-cutoff-divider-gap: 1rem;
+  --arrival-group-translate-y: calc(-100% + 1.125rem);
+
+  /* Keep the final cutoff row comfortably above the bottom divider. */
+  top: calc(100% - var(--arrival-cutoff-divider-gap) - 1.125rem);
   transition: none;
 }
 
@@ -725,11 +733,12 @@ textarea:disabled {
 
 @keyframes bus-group-backtrack {
   from {
-    transform: translateY(-50%) translateY(var(--backtrack-offset));
+    transform: translateY(var(--arrival-group-translate-y))
+      translateY(var(--backtrack-offset));
   }
 
   to {
-    transform: translateY(-50%) translateY(0);
+    transform: translateY(var(--arrival-group-translate-y)) translateY(0);
   }
 }
 

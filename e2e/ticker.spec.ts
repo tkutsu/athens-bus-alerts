@@ -361,10 +361,25 @@ test("uses one progressive timeline with independent multi-line toggles", async 
       name: /Enable notifications for line 218, 23 minutes away/,
     })
     .locator("xpath=../..");
-  await expect(endpointGroup.locator(".arrival-bus")).toHaveCount(2);
+  const nineteenMinuteGroup = page
+    .getByRole("button", {
+      name: /Enable notifications for line 500, 19 minutes away/,
+    })
+    .locator("xpath=../..");
+  await expect(endpointGroup.locator(".arrival-bus")).toHaveCount(1);
   await expect(endpointGroup.locator(".arrival-timeline-bus-marker")).toHaveCount(
-    2,
+    1,
   );
+  await expect(nineteenMinuteGroup).not.toHaveClass(
+    /arrival-timeline-group-static/,
+  );
+  expect(
+    await nineteenMinuteGroup.evaluate((element) =>
+      Number.parseFloat(
+        getComputedStyle(element).getPropertyValue("--timeline-position"),
+      ),
+    ),
+  ).toBeLessThan(100);
   await expect(
     endpointGroup
       .locator(".arrival-timeline-bus-marker")
@@ -415,14 +430,24 @@ test("uses one progressive timeline with independent multi-line toggles", async 
   });
   const railBox = await page.locator(".arrival-timeline-rail").boundingBox();
   expect(railBox).not.toBeNull();
+  const timelineBox = await page.locator(".arrival-timeline").boundingBox();
+  expect(timelineBox).not.toBeNull();
+  const timelineBorderWidth = await page
+    .locator(".arrival-timeline")
+    .evaluate((element) =>
+      Number.parseFloat(getComputedStyle(element).borderBottomWidth),
+    );
   const endpointGroupBox = await endpointGroup.boundingBox();
   expect(endpointGroupBox).not.toBeNull();
   expect(
     Math.abs(
-      endpointGroupBox!.y + endpointGroupBox!.height / 2 -
-        (railBox!.y + railBox!.height),
+      railBox!.y + railBox!.height -
+        (timelineBox!.y + timelineBox!.height - timelineBorderWidth),
     ),
   ).toBeLessThan(1);
+  expect(endpointGroupBox!.y + endpointGroupBox!.height / 2).toBeLessThan(
+    railBox!.y + railBox!.height,
+  );
   const stopMarkerBox = await stopMarker.boundingBox();
   expect(stopMarkerBox).not.toBeNull();
   expect(
@@ -719,6 +744,75 @@ test("uses one progressive timeline with independent multi-line toggles", async 
   expect(requests.arrivalRequestCount()).toBe(1);
 });
 
+test("keeps a multi-bus cutoff stack above the rail ending", async ({ page }) => {
+  await mockStopData(page, [
+    { routeCode: "2810", vehicleId: "218-cutoff", minutes: 21 },
+    { routeCode: "5000", vehicleId: "500-cutoff", minutes: 22 },
+  ]);
+  await page.goto("/");
+  await page
+    .getByRole("combobox", { name: "Search and choose a stop" })
+    .click();
+  await page.getByRole("option", { name: /hsap n\. falhroy/i }).click();
+
+  const cutoffGroup = page
+    .getByRole("button", {
+      name: /Enable notifications for line 218, 21 minutes away/,
+    })
+    .locator("xpath=../..");
+  const markers = cutoffGroup.locator(".arrival-timeline-bus-marker");
+  await expect(cutoffGroup).toHaveClass(/arrival-timeline-group-static/);
+  await expect(markers).toHaveCount(2);
+
+  await page.locator(".arrival-timeline-rail").evaluate(async (element) => {
+    await Promise.all(element.getAnimations().map((animation) => animation.finished));
+  });
+  const railBox = await page.locator(".arrival-timeline-rail").boundingBox();
+  const timelineBox = await page.locator(".arrival-timeline").boundingBox();
+  const timelineBorderWidth = await page
+    .locator(".arrival-timeline")
+    .evaluate((element) =>
+      Number.parseFloat(getComputedStyle(element).borderBottomWidth),
+    );
+  const markerBoxes = await markers.evaluateAll((elements) =>
+    elements.map((element) => {
+      const box = element.getBoundingClientRect();
+      return { height: box.height, width: box.width, y: box.y };
+    }),
+  );
+  expect(railBox).not.toBeNull();
+  expect(timelineBox).not.toBeNull();
+  expect(markerBoxes).toHaveLength(2);
+  const cutoffGroupBox = await cutoffGroup.boundingBox();
+  expect(cutoffGroupBox).not.toBeNull();
+  expect(markerBoxes[0].y + markerBoxes[0].height / 2).toBeLessThan(
+    railBox!.y + railBox!.height,
+  );
+  expect(markerBoxes[1].y + markerBoxes[1].height / 2).toBeLessThan(
+    railBox!.y + railBox!.height,
+  );
+  expect(
+    Math.abs(
+      railBox!.y + railBox!.height -
+        (timelineBox!.y + timelineBox!.height - timelineBorderWidth),
+    ),
+  ).toBeLessThan(1);
+  expect(
+    timelineBox!.y + timelineBox!.height - timelineBorderWidth -
+      (cutoffGroupBox!.y + cutoffGroupBox!.height),
+  ).toBeCloseTo(16, 5);
+  for (const markerBox of markerBoxes) {
+    expect(markerBox.width).toBeCloseTo(32, 1);
+    expect(markerBox.height).toBeCloseTo(32, 1);
+  }
+  await expect(
+    cutoffGroup.locator(".arrival-timeline-marker-face-disabled").first(),
+  ).toHaveCSS("border-width", "2px");
+  await expect(
+    cutoffGroup.locator(".arrival-timeline-marker-face-disabled").last(),
+  ).toHaveCSS("border-width", "2px");
+});
+
 test("saves a multi-line favorite with v4 storage", async ({ page }) => {
   await installNotificationMock(page);
   await mockStopData(page);
@@ -906,7 +1000,7 @@ test("accelerates and brakes for a forward ETA correction", async ({
       {
         routeCode: "2810",
         vehicleId: "218-a",
-        minutes: requestCount === 1 ? 4 : 2,
+        minutes: requestCount === 1 ? 22 : 19,
       },
     ],
     30_000,
@@ -930,5 +1024,13 @@ test("accelerates and brakes for a forward ETA correction", async ({
   await expect(correctedGroup).toHaveCSS(
     "transition-timing-function",
     "cubic-bezier(0.5, 0, 0.9, 1)",
+  );
+  await expect(correctedGroup).toHaveCSS(
+    "transition-property",
+    "top, transform",
+  );
+  await expect(correctedGroup).toHaveCSS(
+    "transition-duration",
+    "0.88s",
   );
 });
