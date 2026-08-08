@@ -146,54 +146,135 @@ test("forgetting data cancels an unfinished stop load", async ({ page }) => {
   expect(arrivalRequests).toBe(0);
 });
 
-test("requests location once until the user explicitly refreshes it", async ({
+test("watches location and keeps a restored stop distance current", async ({
   page,
 }) => {
-  await page.clock.install();
   await page.addInitScript(({ latitude, longitude }) => {
-    Object.defineProperty(window, "__locationCalls", {
+    let watchSuccess: PositionCallback | null = null;
+    const position = (
+      nextLatitude: number,
+      nextLongitude: number,
+    ): GeolocationPosition => ({
+      coords: {
+        accuracy: 1,
+        altitude: null,
+        altitudeAccuracy: null,
+        heading: null,
+        latitude: nextLatitude,
+        longitude: nextLongitude,
+        speed: null,
+        toJSON: () => ({
+          accuracy: 1,
+          latitude: nextLatitude,
+          longitude: nextLongitude,
+        }),
+      },
+      timestamp: Date.now(),
+      toJSON: () => ({
+        latitude: nextLatitude,
+        longitude: nextLongitude,
+      }),
+    });
+
+    Object.defineProperty(window, "__locationWatchCalls", {
       configurable: true,
       value: 0,
       writable: true,
     });
+    Object.defineProperty(window, "__locationRefreshCalls", {
+      configurable: true,
+      value: 0,
+      writable: true,
+    });
+    Object.defineProperty(window, "__locationRefreshHighAccuracy", {
+      configurable: true,
+      value: null,
+      writable: true,
+    });
+    window.__emitLocation = (nextLatitude, nextLongitude) => {
+      watchSuccess?.(position(nextLatitude, nextLongitude));
+    };
     Object.defineProperty(navigator, "geolocation", {
       configurable: true,
       value: {
-        getCurrentPosition(success: PositionCallback) {
-          window.__locationCalls += 1;
-          success({
-            coords: {
-              accuracy: 1,
-              altitude: null,
-              altitudeAccuracy: null,
-              heading: null,
-              latitude,
-              longitude,
-              speed: null,
-            },
-            timestamp: Date.now(),
-          } as GeolocationPosition);
+        getCurrentPosition(
+          success: PositionCallback,
+          _error?: PositionErrorCallback | null,
+          options?: PositionOptions,
+        ) {
+          window.__locationRefreshCalls += 1;
+          window.__locationRefreshHighAccuracy =
+            options?.enableHighAccuracy ?? false;
+          success(position(latitude, longitude));
         },
+        watchPosition(success: PositionCallback) {
+          window.__locationWatchCalls += 1;
+          watchSuccess = success;
+          return 1;
+        },
+        clearWatch() {},
       },
     });
+    window.localStorage.setItem(
+      "athens-bus-ticker:v4",
+      JSON.stringify({
+        version: 4,
+        selectedStop: { code: "400075", name: "FIRST STOP" },
+        subscriptions: [],
+        favorites: [],
+      }),
+    );
   }, {
     latitude: STOPS[0].latitude,
     longitude: STOPS[0].longitude,
   });
   await mockCatalogue(page);
+  await page.route("**/api/stops/400075", (route) =>
+    route.fulfill({ json: routePayload("2810", "218") }),
+  );
+  await page.route("**/api/stops/400075/arrivals", (route) =>
+    route.fulfill({
+      json: { arrivals: [], observedAt: new Date().toISOString() },
+    }),
+  );
 
   await page.goto("/");
-  await page.clock.fastForward(60_000);
-  await expect.poll(() => page.evaluate(() => window.__locationCalls)).toBe(1);
+  const stopTab = page.getByRole("button", {
+    name: /first stop.*change/i,
+  });
+  await expect(stopTab).toBeVisible();
+  await expect(stopTab).not.toContainText("0 m away");
+  await expect(page.getByText(/getting location/i)).toHaveCount(0);
+  await expect
+    .poll(() => page.evaluate(() => window.__locationWatchCalls))
+    .toBe(1);
 
+  await page.evaluate(
+    ({ latitude, longitude }) => window.__emitLocation(latitude, longitude),
+    {
+      latitude: STOPS[1].latitude,
+      longitude: STOPS[1].longitude,
+    },
+  );
+  await expect(stopTab).toContainText(/[1-9]\d* m away/);
+
+  await stopTab.click();
   await page
     .getByRole("button", { name: "Refresh and center on your location" })
     .click();
-  await expect.poll(() => page.evaluate(() => window.__locationCalls)).toBe(2);
+  await expect
+    .poll(() => page.evaluate(() => window.__locationRefreshCalls))
+    .toBe(1);
+  expect(await page.evaluate(() => window.__locationRefreshHighAccuracy)).toBe(
+    true,
+  );
 });
 
 declare global {
   interface Window {
-    __locationCalls: number;
+    __emitLocation: (latitude: number, longitude: number) => void;
+    __locationRefreshCalls: number;
+    __locationRefreshHighAccuracy: boolean | null;
+    __locationWatchCalls: number;
   }
 }
