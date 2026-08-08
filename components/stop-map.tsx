@@ -149,12 +149,31 @@ export function StopMap({
       updateVisibleStopsRef.current = updateVisibleStops;
       map.on("moveend", updateVisibleStops);
       updateVisibleStops();
+
+      const resizeObserver = new ResizeObserver(() => {
+        requestAnimationFrame(() => {
+          if (cancelled) return;
+          map.invalidateSize({ animate: false, pan: false });
+          updateVisibleStops();
+        });
+      });
+      resizeObserver.observe(containerRef.current);
+
+      return () => resizeObserver.disconnect();
     };
 
-    void initialize();
+    let disconnectResizeObserver: (() => void) | undefined;
+    void initialize().then((disconnect) => {
+      if (cancelled) {
+        disconnect?.();
+        return;
+      }
+      disconnectResizeObserver = disconnect;
+    });
 
     return () => {
       cancelled = true;
+      disconnectResizeObserver?.();
       userMarkerRef.current?.remove();
       mapRef.current?.remove();
       mapRef.current = null;
@@ -255,10 +274,10 @@ export function StopMap({
   }, [selectedStop]);
 
   return (
-    <div className="stop-map-shell relative mt-4 overflow-hidden border border-ink/20 bg-white/40">
+    <div className="stop-map-shell relative z-0 mt-4 flex min-h-0 flex-1 overflow-hidden border border-ink/20 bg-white/40">
       <div
         aria-label="Map of OASA bus stops"
-        className="h-[clamp(12rem,45dvh,20rem)] w-full"
+        className="min-h-0 w-full flex-1"
         ref={containerRef}
       />
       <button

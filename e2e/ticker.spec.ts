@@ -149,6 +149,77 @@ test("centers a borderless empty state without timeline connectors", async ({
   ).toBeLessThan(1);
 });
 
+test("fills the picker viewport and keeps search results above the map", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await mockStopData(page);
+  await page.goto("/");
+
+  const map = page.getByLabel("Map of OASA bus stops");
+  const picker = page.getByRole("combobox", {
+    name: "Search and choose a stop",
+  });
+  const option = page.getByRole("option", { name: /hsap n\. falhroy/i });
+
+  await expect(map).toBeVisible();
+  await expect(picker).toBeVisible();
+  await expect
+    .poll(async () => (await map.boundingBox())?.height ?? 0)
+    .toBeGreaterThan(500);
+
+  await picker.fill("hsap");
+  await expect(option).toBeVisible();
+
+  const assertResultsOverlayMap = async () => {
+    const mapBox = await map.boundingBox();
+    const pickerBox = await picker.boundingBox();
+    const listBox = await page.getByRole("listbox").boundingBox();
+    expect(mapBox).not.toBeNull();
+    expect(pickerBox).not.toBeNull();
+    expect(listBox).not.toBeNull();
+    expect(listBox!.y + listBox!.height).toBeLessThanOrEqual(
+      pickerBox!.y,
+    );
+    expect(listBox!.y).toBeGreaterThanOrEqual(mapBox!.y);
+    expect(
+      await option.evaluate((element) => {
+        const box = element.getBoundingClientRect();
+        const hit = document.elementFromPoint(
+          box.left + box.width / 2,
+          box.top + box.height / 2,
+        );
+        return hit !== null && element.contains(hit);
+      }),
+    ).toBe(true);
+  };
+
+  await assertResultsOverlayMap();
+  await option.click();
+  await expect(page.getByLabel("Bus arrivals")).toBeVisible();
+
+  await page
+    .getByRole("button", { name: /hsap n\. falhroy.*change/i })
+    .click();
+  await expect(map).toBeVisible();
+  await expect
+    .poll(async () => (await map.boundingBox())?.height ?? 0)
+    .toBeGreaterThan(400);
+
+  await picker.fill("hsap");
+  await expect(option).toBeVisible();
+  await assertResultsOverlayMap();
+  await option.click();
+  await expect(page.getByLabel("Bus arrivals")).toBeVisible();
+
+  expect(
+    await page.evaluate(() => ({
+      documentHeight: document.documentElement.scrollHeight,
+      viewportHeight: window.innerHeight,
+    })),
+  ).toEqual({ documentHeight: 844, viewportHeight: 844 });
+});
+
 test("uses one progressive timeline with independent multi-line toggles", async ({
   page,
 }) => {
