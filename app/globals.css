@@ -746,7 +746,6 @@ textarea:disabled {
   width: 0.78rem;
   height: 0.62rem;
   opacity: 0.72;
-  transform: translateY(-0.075rem);
 }
 
 .arrival-bus-direction {
