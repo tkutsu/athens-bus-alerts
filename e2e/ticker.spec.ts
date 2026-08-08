@@ -860,6 +860,89 @@ test("saves a multi-line favorite with v4 storage", async ({ page }) => {
     });
 });
 
+test("opens favorite actions outside the scrolling list", async ({ page }) => {
+  await page.addInitScript(({ stop }) => {
+    const now = new Date().toISOString();
+    window.localStorage.setItem(
+      "athens-bus-ticker:v5",
+      JSON.stringify({
+        version: 5,
+        selectedStop: null,
+        subscriptions: [],
+        favorites: [
+          {
+            id: "home",
+            name: "Home",
+            stop,
+            routes: [{ lineId: "218", routeCode: "2810" }],
+            createdAt: now,
+            updatedAt: now,
+            lastEnabledAt: null,
+          },
+        ],
+      }),
+    );
+  }, { stop: STOP });
+  await mockStopData(page);
+  await page.goto("/");
+
+  await page
+    .locator("header")
+    .getByRole("button", { name: "Favorites" })
+    .click();
+  const dialog = page.getByRole("dialog", { name: "Favorites" });
+  await dialog.getByRole("button", { name: "Actions for Home" }).click();
+
+  const menu = dialog.getByRole("menu");
+  await expect(menu).toBeVisible();
+  const layout = await dialog.evaluate((element) => {
+    const listElement = element.querySelector<HTMLElement>(".favorites-list");
+    const menuElement = element.querySelector<HTMLElement>(
+      "[data-favorite-menu-popup]",
+    );
+    if (!listElement || !menuElement) return null;
+    const listBox = listElement.getBoundingClientRect();
+    const menuBox = menuElement.getBoundingClientRect();
+    return {
+      listHasHorizontalOverflow:
+        listElement.scrollWidth > listElement.clientWidth,
+      menuExtendsOutsideList:
+        menuBox.bottom > listBox.bottom ||
+        menuBox.top < listBox.top ||
+        menuBox.left < listBox.left ||
+        menuBox.right > listBox.right,
+      menuPosition: getComputedStyle(menuElement).position,
+    };
+  });
+  expect(layout).toEqual({
+    listHasHorizontalOverflow: false,
+    menuExtendsOutsideList: true,
+    menuPosition: "fixed",
+  });
+  await expect(menu.getByRole("menuitem", { name: "Rename" })).toBeVisible();
+});
+
+test("shows a green success tick when a bus is due", async ({ page }) => {
+  await mockStopData(page, [
+    { routeCode: "2810", vehicleId: "218-first", minutes: 0 },
+  ]);
+  await page.goto("/");
+  await page
+    .getByRole("combobox", { name: "Search and choose a stop" })
+    .click();
+  await page.getByRole("option", { name: /hsap n\. falhroy/i }).click();
+
+  await expect(page.getByText("NOW", { exact: true })).toHaveCount(0);
+  await expect(page.locator(".arrival-due-check")).toHaveCount(1);
+  await expect(page.locator(".arrival-bus-eta-due")).toHaveCSS(
+    "color",
+    "rgb(22, 163, 74)",
+  );
+  await expect(
+    page.getByRole("button", { name: /line 218, due now/ }).first(),
+  ).toBeVisible();
+});
+
 test("promotes the next same-code bus after due-now", async ({ page }) => {
   await installNotificationMock(page);
   await mockStopData(page, [
