@@ -3,11 +3,9 @@ import type {
   Arrival,
   RouteDetails,
   ServingRoute,
-  VehicleTelemetry,
 } from "@/lib/types";
 import type {
   OasaArrival,
-  OasaBusLocation,
   OasaRoute,
   OasaRouteDetails,
 } from "@/lib/oasa/schemas";
@@ -73,56 +71,7 @@ function finiteNumber(value: string): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-const MONTHS = new Map(
-  ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-    .map((month, index) => [month, index]),
-);
-
-/** Parses OASA's non-standard wall-clock timestamp as Europe/Athens time. */
-export function parseOasaTimestamp(value: string): number {
-  const match = value.match(
-    /^([A-Z][a-z]{2})\s+(\d{1,2})\s+(\d{4})\s+(\d{1,2}):(\d{2}):(\d{2}):(\d{3})(AM|PM)$/,
-  );
-  if (!match) return Number.NaN;
-  const [, monthName, day, year, rawHour, minute, second, milliseconds, period] = match;
-  const month = MONTHS.get(monthName);
-  if (month === undefined) return Number.NaN;
-  const hour12 = Number(rawHour);
-  const hour = (hour12 % 12) + (period === "PM" ? 12 : 0);
-  const wallClockUtc = Date.UTC(
-    Number(year),
-    month,
-    Number(day),
-    hour,
-    Number(minute),
-    Number(second),
-    Number(milliseconds),
-  );
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Europe/Athens",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hourCycle: "h23",
-  }).formatToParts(new Date(wallClockUtc));
-  const part = (type: Intl.DateTimeFormatPartTypes) =>
-    Number(parts.find((entry) => entry.type === type)?.value);
-  const athensWallClockAtUtc = Date.UTC(
-    part("year"),
-    part("month") - 1,
-    part("day"),
-    part("hour"),
-    part("minute"),
-    part("second"),
-  );
-  const wallClockWholeSecond = wallClockUtc - Number(milliseconds);
-  return wallClockUtc - (athensWallClockAtUtc - wallClockWholeSecond);
-}
-
-/** Normalizes ordered route geometry and stop direction metadata. */
+/** Normalizes ordered route geometry and stops. */
 export function normalizeRouteDetails(
   routeCode: string,
   value: OasaRouteDetails,
@@ -133,15 +82,12 @@ export function normalizeRouteDetails(
       const longitude = finiteNumber(stop.StopLng);
       const order = finiteNumber(stop.RouteStopOrder);
       if (latitude === null || longitude === null || order === null) return [];
-      const heading = stop.StopHeading ? finiteNumber(stop.StopHeading) : null;
       return [{
         code: stop.StopCode,
         name: firstText(stop.StopDescr, stop.StopDescrEng),
         street: stop.StopStreet?.trim() || null,
         latitude,
         longitude,
-        headingDegrees:
-          heading !== null && heading >= 0 && heading < 360 ? heading : null,
         order,
       }];
     })
@@ -167,25 +113,4 @@ export function normalizeRouteDetails(
     stops,
     shape,
   };
-}
-
-/** Normalizes fresh-enough vehicle telemetry without exposing upstream formats. */
-export function normalizeBusLocations(
-  locations: OasaBusLocation[],
-): VehicleTelemetry[] {
-  return locations.flatMap((location) => {
-    const latitude = finiteNumber(location.CS_LAT);
-    const longitude = finiteNumber(location.CS_LNG);
-    const timestamp = parseOasaTimestamp(location.CS_DATE);
-    if (latitude === null || longitude === null || !Number.isFinite(timestamp)) {
-      return [];
-    }
-    return [{
-      routeCode: location.ROUTE_CODE,
-      vehicleId: location.VEH_NO,
-      latitude,
-      longitude,
-      recordedAt: new Date(timestamp).toISOString(),
-    }];
-  });
 }

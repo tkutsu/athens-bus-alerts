@@ -31,7 +31,6 @@ export interface RouteStop extends Coordinates {
   code: string;
   name: string;
   street: string | null;
-  headingDegrees: number | null;
   order: number;
 }
 
@@ -46,12 +45,6 @@ export interface RouteDetails {
   isCircular: boolean;
   stops: RouteStop[];
   shape: RouteShapePoint[];
-}
-
-export interface VehicleTelemetry extends Coordinates {
-  routeCode: string;
-  vehicleId: string;
-  recordedAt: string;
 }
 
 export interface UserLocation extends Coordinates {
