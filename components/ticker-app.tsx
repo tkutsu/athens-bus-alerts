@@ -1149,7 +1149,7 @@ export function TickerApp() {
     timelineArrivals.length === 0;
 
   return (
-    <main className="mx-auto flex h-dvh w-full max-w-2xl flex-col overflow-hidden px-4 pt-6 pb-4 sm:px-6 sm:pt-8">
+    <main className="mx-auto flex h-svh w-full max-w-2xl flex-col overflow-hidden px-4 pt-6 pb-4 sm:h-dvh sm:px-6 sm:pt-8">
       <header className="mb-5 flex items-start justify-between">
         <h1 className="flex items-center gap-2 text-xs font-bold tracking-[0.22em] text-signal uppercase">
           <Icon name="bus" className="size-5" />
