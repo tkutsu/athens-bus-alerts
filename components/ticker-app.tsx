@@ -826,6 +826,12 @@ export function TickerApp() {
   const toastIsError = Boolean(error || catalogError || arrivalError);
   const toastIsUrgent = Boolean(!toastIsError && urgentMessage);
   const canSaveFavorite = selectedStop !== null && selectedLineIds.length > 0;
+  const hasNoArrivals =
+    selectedStop !== null &&
+    arrivalData !== null &&
+    !arrivalsLoading &&
+    !isLoadingStop &&
+    timelineArrivals.length === 0;
 
   return (
     <main className="mx-auto flex h-dvh w-full max-w-2xl flex-col overflow-hidden px-4 pt-6 pb-4 sm:px-6 sm:pt-8">
@@ -858,7 +864,9 @@ export function TickerApp() {
           <button
             aria-controls={`stop-picker-${selectedStop.code}`}
             aria-expanded={pickerOpen}
-            className="selected-stop-row"
+            className={`selected-stop-row ${
+              hasNoArrivals ? "selected-stop-row-no-arrivals" : ""
+            }`}
             onClick={() => setPickerOpen((current) => !current)}
             type="button"
           >
@@ -926,7 +934,7 @@ export function TickerApp() {
       {selectedStop && !pickerOpen ? (
         <ArrivalTimeline
           arrivals={timelineArrivals}
-          isLoading={arrivalsLoading || isLoadingStop}
+          isLoading={arrivalsLoading || isLoadingStop || arrivalData === null}
           observedAt={arrivalData?.observedAt ?? null}
           onToggleLine={(lineId) => void toggleLine(lineId)}
           selectedLineIds={selectedLineIds}

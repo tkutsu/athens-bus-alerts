@@ -291,7 +291,7 @@ export function ArrivalTimeline({
       {isLoading && arrivals.length === 0 ? (
         <p className="empty-copy mt-5">Loading live arrivals...</p>
       ) : arrivals.length === 0 ? (
-        <p className="empty-copy mt-5">No live arrivals right now.</p>
+        <p className="arrival-timeline-empty">no bus found :(</p>
       ) : (
         <div className="arrival-timeline" ref={setTimelineNode}>
           <div aria-hidden="true" className="arrival-timeline-rail" />

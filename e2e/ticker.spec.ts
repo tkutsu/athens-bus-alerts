@@ -100,6 +100,55 @@ test.beforeEach(async ({ context }) => {
   });
 });
 
+test("centers a borderless empty state without timeline connectors", async ({
+  page,
+}) => {
+  await mockStopData(page, []);
+  await page.goto("/");
+
+  await page
+    .getByRole("combobox", { name: "Search and choose a stop" })
+    .click();
+  await page.getByRole("option", { name: /hsap n\. falhroy/i }).click();
+
+  const arrivals = page.getByLabel("Bus arrivals");
+  const emptyState = page.getByText("no bus found :(", { exact: true });
+  const stopTab = page.getByRole("button", {
+    name: /hsap n\. falhroy.*change/i,
+  });
+
+  await expect(emptyState).toBeVisible();
+  await expect(page.locator(".arrival-timeline-rail")).toHaveCount(0);
+  await expect(emptyState).toHaveCSS("border-top-width", "0px");
+  await expect(emptyState).toHaveCSS("border-bottom-width", "0px");
+  await expect
+    .poll(() =>
+      stopTab.evaluate(
+        (element) => getComputedStyle(element, "::after").display,
+      ),
+    )
+    .toBe("none");
+
+  const arrivalsBox = await arrivals.boundingBox();
+  const emptyBox = await emptyState.boundingBox();
+  expect(arrivalsBox).not.toBeNull();
+  expect(emptyBox).not.toBeNull();
+  expect(
+    Math.abs(
+      emptyBox!.x +
+        emptyBox!.width / 2 -
+        (arrivalsBox!.x + arrivalsBox!.width / 2),
+    ),
+  ).toBeLessThan(1);
+  expect(
+    Math.abs(
+      emptyBox!.y +
+        emptyBox!.height / 2 -
+        (arrivalsBox!.y + arrivalsBox!.height / 2),
+    ),
+  ).toBeLessThan(1);
+});
+
 test("uses one progressive timeline with independent multi-line toggles", async ({
   page,
 }) => {
