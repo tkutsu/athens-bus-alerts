@@ -32,7 +32,7 @@ interface ArrivalSnapshot {
   minutes: ReadonlyMap<string, number>;
 }
 
-const TIMELINE_MAX_MINUTES = 15;
+const TIMELINE_MAX_MINUTES = 20;
 const BUS_MARKER_SIZE_PX = 32;
 const TIMELINE_VERTICAL_INSET_PX = 92;
 const TIMELINE_TOP_INSET_PX = 20;
