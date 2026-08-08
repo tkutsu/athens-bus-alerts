@@ -42,6 +42,7 @@ import {
 } from "@/components/arrival-timeline";
 
 const TOAST_DISMISS_MS = 5_000;
+const LOCATION_MIN_MOVEMENT_METERS = 10;
 
 function Icon({
   name,
@@ -318,6 +319,40 @@ export function TickerApp() {
   );
   const isSearching = searchQuery !== deferredSearchQuery;
 
+  /** Applies a fresh device position and keeps selected-stop distance in sync. */
+  const applyPosition = useCallback(
+    (position: GeolocationPosition, force = false): boolean => {
+      const nextCoordinates = {
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude,
+      };
+      const previousCoordinates = coordinatesRef.current;
+      if (
+        !force &&
+        previousCoordinates &&
+        haversineMeters(previousCoordinates, nextCoordinates) <
+          LOCATION_MIN_MOVEMENT_METERS
+      ) {
+        return false;
+      }
+
+      locationDeniedRef.current = false;
+      coordinatesRef.current = nextCoordinates;
+      setCoordinates(nextCoordinates);
+      setSelectedStop((currentStop) => {
+        if (!currentStop) return currentStop;
+        const nextStop = {
+          ...currentStop,
+          distanceMeters: haversineMeters(nextCoordinates, currentStop),
+        };
+        selectedStopRef.current = nextStop;
+        return nextStop;
+      });
+      return true;
+    },
+    [],
+  );
+
   /** Loads one stop and validates any subscriptions supplied by a favorite. */
   const loadStop = useCallback(
     async (
@@ -346,9 +381,10 @@ export function TickerApp() {
         if (loadVersion !== stopLoadVersionRef.current) return null;
 
         const stopCoordinates = { latitude: latitude!, longitude: longitude! };
+        const currentCoordinates = coordinatesRef.current;
         const distanceMeters =
-          coordinates
-            ? haversineMeters(coordinates, stopCoordinates)
+          currentCoordinates
+            ? haversineMeters(currentCoordinates, stopCoordinates)
             : (requestedStop.distanceMeters ?? 0);
         const stop: StopSummary = {
           code: requestedStop.code,
@@ -407,7 +443,7 @@ export function TickerApp() {
         }
       }
     },
-    [catalogStops, coordinates, updateSubscriptions],
+    [catalogStops, updateSubscriptions],
   );
 
   /* eslint-disable react-hooks/set-state-in-effect -- hydrate browser storage after SSR */
@@ -653,14 +689,9 @@ export function TickerApp() {
 
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        const nextCoordinates = {
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-        };
-        locationDeniedRef.current = false;
-        coordinatesRef.current = nextCoordinates;
-        setCoordinates(nextCoordinates);
-        if (force) {
+        applyPosition(position, true);
+        const nextCoordinates = coordinatesRef.current;
+        if (nextCoordinates) {
           setMapFocus(nextCoordinates);
           setStatus("Map centered on your location.");
         }
@@ -679,18 +710,48 @@ export function TickerApp() {
         }
       },
       {
-        enableHighAccuracy: false,
+        enableHighAccuracy: true,
         maximumAge: force ? 0 : 20_000,
         timeout: 10_000,
       },
     );
-  }, []);
+  }, [applyPosition]);
 
   useEffect(() => {
-    if (!hydrated) return;
-    const initialLocation = window.setTimeout(locate, 0);
-    return () => window.clearTimeout(initialLocation);
-  }, [hydrated, locate]);
+    if (!hydrated || !navigator.geolocation) return;
+
+    let watchId: number | null = null;
+    const stopWatching = () => {
+      if (watchId === null) return;
+      navigator.geolocation.clearWatch(watchId);
+      watchId = null;
+    };
+    const startWatching = () => {
+      if (watchId !== null || document.visibilityState !== "visible") return;
+      watchId = navigator.geolocation.watchPosition(
+        (position) => applyPosition(position),
+        (locationError) => {
+          if (locationError.code === 1) locationDeniedRef.current = true;
+        },
+        {
+          enableHighAccuracy: false,
+          maximumAge: 20_000,
+          timeout: 10_000,
+        },
+      );
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") startWatching();
+      else stopWatching();
+    };
+
+    startWatching();
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      stopWatching();
+    };
+  }, [applyPosition, hydrated]);
 
   function chooseStop(stop: StopSummary) {
     setSearchQuery("");
@@ -875,11 +936,13 @@ export function TickerApp() {
               <span className="block truncate font-bold">
                 {formatTransitName(selectedStop.name)}
               </span>
-              <span className="mt-0.5 block truncate text-xs text-ink/50">
-                {selectedStop.street
-                  ? formatTransitName(selectedStop.street)
-                  : distanceLabel(selectedStop.distanceMeters)}
-              </span>
+              {(selectedStop.street || coordinates) && (
+                <span className="mt-0.5 block truncate text-xs text-ink/50">
+                  {selectedStop.street
+                    ? formatTransitName(selectedStop.street)
+                    : distanceLabel(selectedStop.distanceMeters)}
+                </span>
+              )}
             </span>
             <span className="small-action shrink-0">
               {pickerOpen ? "Track" : "Change"}
