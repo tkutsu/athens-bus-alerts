@@ -318,11 +318,22 @@ textarea:disabled {
 }
 
 .selected-stop-panel-inner {
+  display: flex;
+  flex-direction: column;
   min-height: 0;
   overflow: hidden;
 }
 
+.selected-stop-disclosure-open {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+}
+
 .selected-stop-disclosure-open .selected-stop-panel {
+  min-height: 0;
+  flex: 1 1 auto;
   grid-template-rows: 1fr;
   opacity: 1;
   visibility: visible;

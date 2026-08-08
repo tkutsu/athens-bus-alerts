@@ -55,7 +55,7 @@ export function StopCombobox({
   }
 
   return (
-    <div className="relative mt-3" ref={rootRef}>
+    <div className="relative z-10 mt-3 shrink-0" ref={rootRef}>
       <label className="relative block">
         <span className="sr-only">Search and choose a stop</span>
         <svg
@@ -123,7 +123,7 @@ export function StopCombobox({
 
       {isOpen && (
         <div
-          className="absolute z-[600] mt-1 max-h-72 w-full overflow-y-auto border border-ink/20 bg-paper shadow-lg"
+          className="absolute right-0 bottom-full left-0 z-[600] mb-1 max-h-[min(18rem,45dvh)] overflow-y-auto border border-ink/20 bg-paper shadow-lg"
           id={listId}
           role="listbox"
         >

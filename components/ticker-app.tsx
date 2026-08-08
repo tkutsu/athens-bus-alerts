@@ -857,7 +857,7 @@ export function TickerApp() {
             ? `selected-stop-disclosure ${
                 pickerOpen ? "selected-stop-disclosure-open" : ""
               }`
-            : "min-h-0 flex-1 overflow-hidden"
+            : "flex min-h-0 flex-1 flex-col overflow-hidden"
         }
       >
         {selectedStop && (
@@ -888,13 +888,21 @@ export function TickerApp() {
         )}
         <div
           aria-hidden={selectedStop ? !pickerOpen : undefined}
-          className={selectedStop ? "selected-stop-panel" : undefined}
+          className={
+            selectedStop
+              ? "selected-stop-panel"
+              : "flex min-h-0 flex-1 flex-col"
+          }
           id={selectedStop ? `stop-picker-${selectedStop.code}` : "stop-picker"}
           inert={selectedStop ? !pickerOpen : false}
           key="stop-picker-panel"
         >
           <div
-            className={selectedStop ? "selected-stop-panel-inner" : undefined}
+            className={
+              selectedStop
+                ? "selected-stop-panel-inner"
+                : "flex min-h-0 flex-1 flex-col"
+            }
           >
             <StopMap
               catalogError={catalogError}
