@@ -716,7 +716,6 @@ textarea:disabled {
   width: 0.78rem;
   height: 0.62rem;
   opacity: 0.72;
-  transform: translateY(-0.075rem);
 }
 
 .arrival-bus-direction {
@@ -726,9 +725,8 @@ textarea:disabled {
   white-space: nowrap;
   font-size: 0.65rem;
   font-weight: 400;
-  line-height: 1;
+  line-height: 1.2;
   opacity: 0.72;
-  transform: translateY(-0.075rem);
 }
 
 .map-stop-direction-shell {
