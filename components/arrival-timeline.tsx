@@ -88,23 +88,14 @@ function SuccessCheckIcon() {
   );
 }
 
-function TurtleIcon() {
+function SleepIndicator() {
   return (
-    <svg
+    <span
       aria-hidden="true"
-      className="arrival-confidence-turtle"
-      fill="none"
-      stroke="currentColor"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth="1.7"
-      viewBox="0 0 24 24"
+      className="arrival-confidence-sleep"
     >
-      <path d="M7 9.5c1.6-3 7.4-3 9 0 1.1 2.1.5 5.6-1.8 6.7H8.8C6.5 15.1 5.9 11.6 7 9.5Z" />
-      <path d="m7.2 10-2-1.4m1.7 6.5-1.8 1.3m9.8-6.6 2.5-1.2m-2.2 6.5 2 1.5M10 16.2l-.5 2m3.8-2 .6 2" />
-      <circle cx="18.8" cy="11.5" r="1.7" />
-      <path d="M19.4 11h.01" />
-    </svg>
+      zZz
+    </span>
   );
 }
 
@@ -533,7 +524,7 @@ export function ArrivalTimeline({
                         )}
                         {slipping && (
                           <span className="arrival-confidence-indicator">
-                            <TurtleIcon />
+                            <SleepIndicator />
                           </span>
                         )}
                       </button>

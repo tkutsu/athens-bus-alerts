@@ -504,14 +504,23 @@ test("uses one progressive timeline with independent multi-line toggles", async 
     );
     if (!flipper || !enabledFace) return null;
     const style = getComputedStyle(flipper);
+    const enabledFaceStyle = getComputedStyle(enabledFace);
+    const enabledIcon = enabledFace.querySelector<HTMLElement>(
+      ".arrival-timeline-bus-icon",
+    );
+    if (!enabledIcon) return null;
     return {
-      backgroundColor: getComputedStyle(enabledFace).backgroundColor,
+      backgroundColor: enabledFaceStyle.backgroundColor,
+      faceWidth: Number.parseFloat(enabledFaceStyle.width),
+      iconWidth: Number.parseFloat(getComputedStyle(enabledIcon).width),
       transitionDuration: style.transitionDuration,
     };
   });
   expect(selectionFlip).not.toBeNull();
   expect(selectionFlip!.transitionDuration).toBe("0.72s");
   expect(selectionFlip!.backgroundColor).toBe("rgb(229, 86, 47)");
+  expect(selectionFlip!.faceWidth).toBeCloseTo(38.4, 1);
+  expect(selectionFlip!.iconWidth).toBe(24);
   await expect
     .poll(() =>
       selectedBusMarker

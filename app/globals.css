@@ -572,6 +572,7 @@ textarea:disabled {
 }
 
 .arrival-timeline-marker-face-enabled {
+  inset: -0.2rem;
   background: var(--signal);
   transform: rotateY(180deg);
 }
@@ -583,6 +584,11 @@ textarea:disabled {
   width: 1.25rem;
   height: 1.25rem;
   flex: none;
+}
+
+.arrival-timeline-marker-face-enabled .arrival-timeline-bus-icon {
+  width: 1.5rem;
+  height: 1.5rem;
 }
 
 .arrival-confidence-indicator {
@@ -607,10 +613,14 @@ textarea:disabled {
   animation: confidence-question-orbit 2.1s ease-in-out infinite;
 }
 
-.arrival-confidence-turtle {
+.arrival-confidence-sleep {
   display: block;
-  width: 1.15rem;
-  height: 1.15rem;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 900;
+  line-height: 1;
+  white-space: nowrap;
+  animation: confidence-question-orbit 2.1s ease-in-out infinite;
 }
 
 .arrival-footsteps {
@@ -911,6 +921,7 @@ textarea:disabled {
   }
 
   .arrival-confidence-questions,
+  .arrival-confidence-sleep,
   .arrival-footsteps {
     animation: none;
   }
