@@ -659,7 +659,6 @@ textarea:disabled {
 .arrival-bus:focus-visible {
   z-index: 4;
   opacity: 1;
-  transform: translateY(-1px);
 }
 
 .arrival-timeline-row:has(
@@ -680,11 +679,6 @@ textarea:disabled {
   color: white;
   box-shadow: 0 5px 14px rgb(var(--signal-rgb) / 0.22);
   transform: scale(1.06);
-}
-
-.arrival-bus-selected:hover,
-.arrival-bus-selected:focus-visible {
-  transform: translateY(-1px) scale(1.06);
 }
 
 .arrival-bus-muted {
