@@ -28,18 +28,35 @@ import type {
   Coordinates,
   Favorite,
   LineSubscription,
+  RouteDetails,
   ServingRoute,
   StopSummary,
+  UserLocation,
 } from "@/lib/types";
 import { findClosestStops, searchStopNames } from "@/lib/stop-catalog";
 import { useArrivalPolling } from "@/hooks/use-arrival-polling";
 import { useStopCatalog } from "@/hooks/use-stop-catalog";
+import { useCatchPolling } from "@/hooks/use-catch-polling";
+import { useRouteDetails } from "@/hooks/use-route-details";
 import { StopCombobox } from "@/components/stop-combobox";
 import { StopMap } from "@/components/stop-map";
+import { AlternateStopDialog } from "@/components/alternate-stop-dialog";
 import {
   ArrivalTimeline,
   type TimelineArrival,
 } from "@/components/arrival-timeline";
+import {
+  alternateStopCandidates,
+  bestAlternateStop,
+  catchOptionsForStop,
+  representativeCatchOption,
+  type BetterStopOption,
+} from "@/lib/catch-options";
+import {
+  updateVehicleConfidence,
+  type VehicleConfidenceRecord,
+} from "@/lib/vehicle-confidence";
+import { estimateWalk, isUsableLocation } from "@/lib/walking";
 
 const TOAST_DISMISS_MS = 5_000;
 const LOCATION_MIN_MOVEMENT_METERS = 10;
@@ -245,6 +262,7 @@ function distanceLabel(distanceMeters: number): string {
 export function TickerApp() {
   const [hydrated, setHydrated] = useState(false);
   const [coordinates, setCoordinates] = useState<Coordinates | null>(null);
+  const [userLocation, setUserLocation] = useState<UserLocation | null>(null);
   const [mapFocus, setMapFocus] = useState<Coordinates | null>(null);
   const [selectedStop, setSelectedStop] = useState<StopSummary | null>(null);
   const selectedStopRef = useRef<StopSummary | null>(null);
@@ -268,7 +286,14 @@ export function TickerApp() {
   const [searchQuery, setSearchQuery] = useState("");
   const [favoriteName, setFavoriteName] = useState("");
   const [favoritesOpen, setFavoritesOpen] = useState(false);
+  const [focusedRouteCode, setFocusedRouteCode] = useState<string | null>(null);
+  const [openAlternate, setOpenAlternate] =
+    useState<BetterStopOption | null>(null);
   const favoritesDialogRef = useRef<HTMLDialogElement | null>(null);
+  const confidenceRecordsRef = useRef(
+    new Map<string, VehicleConfidenceRecord>(),
+  );
+  const confidenceStopCodeRef = useRef<string | null>(null);
 
   const updateSubscriptions = useCallback(
     (next: LineSubscription[] | ((current: LineSubscription[]) => LineSubscription[])) => {
@@ -282,15 +307,25 @@ export function TickerApp() {
   );
 
   const selectedLineIds = useMemo(
-    () => subscriptions.map((subscription) => subscription.lineId),
+    () => [...new Set(subscriptions.map((subscription) => subscription.lineId))],
     [subscriptions],
   );
   const selectedRouteCodes = useMemo(() => {
-    const selected = new Set(selectedLineIds);
-    return routes
-      .filter((route) => selected.has(route.lineId))
-      .map((route) => route.routeCode);
-  }, [routes, selectedLineIds]);
+    const explicit = new Set(
+      subscriptions.flatMap((subscription) =>
+        subscription.routeCode ? [subscription.routeCode] : [],
+      ),
+    );
+    const wildcardLines = new Set(
+      subscriptions.flatMap((subscription) =>
+        subscription.routeCode ? [] : [subscription.lineId],
+      ),
+    );
+    for (const route of routes) {
+      if (wildcardLines.has(route.lineId)) explicit.add(route.routeCode);
+    }
+    return [...explicit];
+  }, [routes, subscriptions]);
 
   const {
     data: arrivalData,
@@ -320,6 +355,11 @@ export function TickerApp() {
     [catalogStops, coordinates, deferredSearchQuery],
   );
   const isSearching = searchQuery !== deferredSearchQuery;
+  const routeCodesForDetails = useMemo(
+    () => selectedRouteCodes,
+    [selectedRouteCodes],
+  );
+  const { details: routeDetails } = useRouteDetails(routeCodesForDetails);
 
   /** Applies a fresh device position and keeps selected-stop distance in sync. */
   const applyPosition = useCallback(
@@ -341,6 +381,11 @@ export function TickerApp() {
       locationDeniedRef.current = false;
       coordinatesRef.current = nextCoordinates;
       setCoordinates(nextCoordinates);
+      setUserLocation({
+        ...nextCoordinates,
+        accuracyMeters: position.coords.accuracy,
+        observedAt: new Date(position.timestamp).toISOString(),
+      });
       setSelectedStop((currentStop) => {
         if (!currentStop) return currentStop;
         const nextStop = {
@@ -395,8 +440,9 @@ export function TickerApp() {
           ...stopCoordinates,
           distanceMeters,
         };
-        const validLineIds = new Set(
-          servingRoutes.map((route) => route.lineId),
+        const validLineIds = new Set(servingRoutes.map((route) => route.lineId));
+        const validRouteCodes = new Set(
+          servingRoutes.map((route) => route.routeCode),
         );
         const changingStop =
           selectedStopRef.current?.code !== undefined &&
@@ -404,20 +450,31 @@ export function TickerApp() {
 
         let nextSubscriptions: LineSubscription[];
         if (requestedSubscriptions) {
-          nextSubscriptions = requestedSubscriptions.filter((subscription) =>
-            validLineIds.has(subscription.lineId),
+          nextSubscriptions = requestedSubscriptions.filter(
+            (subscription) =>
+              subscription.routeCode
+                ? validRouteCodes.has(subscription.routeCode)
+                : validLineIds.has(subscription.lineId),
           );
         } else if (changingStop) {
           nextSubscriptions = [];
         } else {
-          nextSubscriptions = subscriptionsRef.current.filter((subscription) =>
-            validLineIds.has(subscription.lineId),
+          nextSubscriptions = subscriptionsRef.current.filter(
+            (subscription) =>
+              subscription.routeCode
+                ? validRouteCodes.has(subscription.routeCode)
+                : validLineIds.has(subscription.lineId),
           );
         }
 
         selectedStopRef.current = stop;
         setSelectedStop(stop);
         setRoutes(servingRoutes);
+        setFocusedRouteCode(
+          nextSubscriptions.find((subscription) => subscription.routeCode)
+            ?.routeCode ?? null,
+        );
+        setOpenAlternate(null);
         updateSubscriptions(nextSubscriptions);
         setPickerOpen(false);
         return {
@@ -488,7 +545,7 @@ export function TickerApp() {
   useEffect(() => {
     if (!hydrated) return;
     writeStoredState({
-      version: 4,
+      version: 5,
       selectedStop: selectedStop ? stopReference(selectedStop) : null,
       subscriptions,
       favorites,
@@ -517,12 +574,64 @@ export function TickerApp() {
     return () => document.removeEventListener("pointerdown", closeMenus);
   }, []);
 
+  const candidateStopsByRoute = useMemo(() => {
+    const result = new Map<string, readonly string[]>();
+    if (!selectedStop || !isUsableLocation(userLocation)) return result;
+    for (const routeCode of selectedRouteCodes) {
+      const detail = routeDetails.get(routeCode);
+      if (!detail) continue;
+      result.set(
+        routeCode,
+        alternateStopCandidates(
+          detail.stops,
+          selectedStop.code,
+          userLocation,
+        ).map((stop) => stop.code),
+      );
+    }
+    return result;
+  }, [routeDetails, selectedRouteCodes, selectedStop, userLocation]);
+  const { states: catchStates } = useCatchPolling(candidateStopsByRoute);
+  const [confidenceArrivals, setConfidenceArrivals] = useState<
+    ReturnType<typeof updateVehicleConfidence>["arrivals"]
+  >([]);
+  const [confidenceClock, setConfidenceClock] = useState(() => Date.now());
+
+  useEffect(() => {
+    const interval = window.setInterval(
+      () => setConfidenceClock(Date.now()),
+      30_000,
+    );
+    return () => window.clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    if (!arrivalData) return;
+    const timeout = window.setTimeout(() => {
+      const telemetry = [...catchStates.values()].flatMap(
+        (state) => state.vehicles,
+      );
+      const sameStop = confidenceStopCodeRef.current === selectedStop?.code;
+      const update = updateVehicleConfidence(
+        sameStop ? confidenceRecordsRef.current : new Map(),
+        arrivalData.arrivals,
+        arrivalData.observedAt,
+        telemetry,
+        confidenceClock,
+      );
+      confidenceStopCodeRef.current = selectedStop?.code ?? null;
+      confidenceRecordsRef.current = update.records;
+      setConfidenceArrivals(update.arrivals);
+    }, 0);
+    return () => window.clearTimeout(timeout);
+  }, [arrivalData, catchStates, confidenceClock, selectedStop?.code]);
+
   const timelineArrivals = useMemo<TimelineArrival[]>(() => {
-    const routeDetails = new Map(
+    const routesByCode = new Map(
       routes.map((route) => [route.routeCode, route]),
     );
-    return (arrivalData?.arrivals ?? []).flatMap((arrival) => {
-      const route = routeDetails.get(arrival.routeCode);
+    return confidenceArrivals.flatMap((arrival) => {
+      const route = routesByCode.get(arrival.routeCode);
       return route
         ? [
             {
@@ -530,19 +639,69 @@ export function TickerApp() {
               vehicleKey: `${arrival.routeCode}:${arrival.vehicleId}`,
               lineId: route.lineId,
               description: route.description,
+              destination: route.destination,
             },
           ]
         : [];
     });
-  }, [arrivalData?.arrivals, routes]);
+  }, [confidenceArrivals, routes]);
+
+  const betterStopsByRoute = useMemo(() => {
+    const result = new Map<string, BetterStopOption>();
+    if (!selectedStop || !isUsableLocation(userLocation)) return result;
+    for (const routeCode of selectedRouteCodes) {
+      const detail = routeDetails.get(routeCode);
+      const state = catchStates.get(routeCode);
+      if (!detail || !state) continue;
+      const baseline = representativeCatchOption(
+        catchOptionsForStop(
+          selectedStop,
+          (arrivalData?.arrivals ?? []).filter(
+            (arrival) => arrival.routeCode === routeCode,
+          ),
+          userLocation,
+        ),
+      );
+      const stops = new Map(detail.stops.map((stop) => [stop.code, stop]));
+      const alternatives = state.stopArrivals.flatMap(({ stopCode, arrivals }) => {
+        const stop = stops.get(stopCode);
+        return stop ? catchOptionsForStop(stop, arrivals, userLocation) : [];
+      });
+      const better = bestAlternateStop(baseline, alternatives);
+      if (better) result.set(routeCode, better);
+    }
+    return result;
+  }, [
+    arrivalData?.arrivals,
+    catchStates,
+    routeDetails,
+    selectedRouteCodes,
+    selectedStop,
+    userLocation,
+  ]);
+  const alternateVehicleKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const [routeCode, option] of betterStopsByRoute) {
+      keys.add(`${routeCode}:${option.baseline.arrival.vehicleId}`);
+    }
+    return keys;
+  }, [betterStopsByRoute]);
+
   const candidates = useMemo<CandidateArrival[]>(
     () =>
-      timelineArrivals.map((arrival) => ({
-        lineId: arrival.lineId,
-        vehicleKey: arrival.vehicleKey,
-        minutes: arrival.minutes,
-      })),
-    [timelineArrivals],
+      timelineArrivals
+        .filter((arrival) => arrival.confidence !== "unconfirmed")
+        .map((arrival) => ({
+          lineId: arrival.lineId,
+          routeCode: arrival.routeCode,
+          vehicleKey: arrival.vehicleKey,
+          minutes: arrival.minutes,
+          walkSeconds:
+            selectedStop && isUsableLocation(userLocation)
+              ? estimateWalk(userLocation, selectedStop).seconds
+              : undefined,
+        })),
+    [selectedStop, timelineArrivals, userLocation],
   );
 
   const sendAlerts = useCallback(
@@ -568,15 +727,28 @@ export function TickerApp() {
           warningLines.length === 1 ? "is" : "are"
         } 1 min away.`);
       }
+      const leaveLines = events
+        .filter((event) => event.kind === "leave-now")
+        .map((event) => formatTransitName(event.lineId));
+      if (
+        leaveLines.length > 0 &&
+        zeroLines.length === 0 &&
+        warningLines.length === 0
+      ) {
+        setUrgentMessage(`Leave now for ${[...new Set(leaveLines)].join(", ")}.`);
+      }
 
       for (const event of events) {
         const line = formatTransitName(event.lineId);
         const dueNow = event.kind === "zero";
-        const title = dueNow
-          ? `${line} is due now`
-          : `${line} is 1 min away`;
+        const leaveNow = event.kind === "leave-now";
+        const title = leaveNow
+          ? `Leave now for ${line}`
+          : dueNow
+            ? `${line} is due now`
+            : `${line} is 1 min away`;
         const body = `${formatTransitName(stop.name)} · ${
-          dueNow ? "arrival alert" : "1-minute alert"
+          leaveNow ? "walking-time alert" : dueNow ? "arrival alert" : "1-minute alert"
         }`;
         const options = {
           body,
@@ -584,8 +756,8 @@ export function TickerApp() {
           badge: "/icon-192.png",
           tag: `line-${stop.code}-${event.lineId}-${event.vehicleKey}`,
           renotify: true,
-          requireInteraction: dueNow,
-          vibrate: dueNow
+          requireInteraction: dueNow || leaveNow,
+          vibrate: dueNow || leaveNow
             ? [400, 140, 400, 140, 600]
             : [120],
         };
@@ -598,7 +770,7 @@ export function TickerApp() {
             new Notification(title, options);
           }
         } catch {
-          if (!dueNow) setStatus(`${title}. ${body}`);
+          if (!dueNow && !leaveNow) setStatus(`${title}. ${body}`);
         }
       }
 
@@ -631,7 +803,10 @@ export function TickerApp() {
 
   useEffect(() => {
     const nextPredicted = subscriptions
-      .map((subscription) => subscription.predictedZeroAt)
+      .flatMap((subscription) => [
+        subscription.firedLeaveNow ? null : subscription.predictedLeaveAt,
+        subscription.predictedZeroAt,
+      ])
       .filter((value): value is string => Boolean(value))
       .sort()[0];
     if (!nextPredicted) return;
@@ -661,20 +836,54 @@ export function TickerApp() {
     return true;
   }
 
-  async function toggleLine(lineId: string) {
-    if (subscriptionsRef.current.some((item) => item.lineId === lineId)) {
+  async function toggleRoute(routeCode: string, lineId: string) {
+    const isSelected = selectedRouteCodes.includes(routeCode);
+    if (isSelected) {
+      const remainingRoute = subscriptionsRef.current.find(
+        (item) => item.routeCode && item.routeCode !== routeCode,
+      )?.routeCode;
       updateSubscriptions((current) =>
-        current.filter((item) => item.lineId !== lineId),
+        current.filter(
+          (item) =>
+            item.routeCode !== routeCode &&
+            !(item.routeCode === null && item.lineId === lineId),
+        ),
       );
-      setStatus(`Notifications are off for ${formatTransitName(lineId)}.`);
+      setFocusedRouteCode((current) =>
+        current === routeCode ? remainingRoute ?? null : current,
+      );
+      setStatus(`Tracking is off for ${formatTransitName(lineId)} in this direction.`);
       return;
     }
     if (!(await ensureNotificationPermission())) return;
+    let detail: RouteDetails | undefined = routeDetails.get(routeCode);
+    if (!detail) {
+      try {
+        const response = await fetch(`/api/routes/${routeCode}`);
+        if (response.ok) detail = (await response.json()) as RouteDetails;
+      } catch {
+        // Selection can still work when optional direction metadata is unavailable.
+      }
+    }
+    if (
+      detail &&
+      selectedStop &&
+      detail.stops.at(-1)?.code === selectedStop.code &&
+      !detail.isCircular
+    ) {
+      setError("That bus finishes here, so there is no onward direction to track.");
+      return;
+    }
     updateSubscriptions((current) => [
-      ...current,
-      createSubscription(lineId),
+      ...current.filter(
+        (item) => !(item.routeCode === null && item.lineId === lineId),
+      ),
+      createSubscription(lineId, routeCode),
     ]);
-    setStatus(`Tracking line ${formatTransitName(lineId)}.`);
+    setFocusedRouteCode(routeCode);
+    setStatus(`Tracking ${formatTransitName(lineId)} toward ${formatTransitName(
+      detail?.destination ?? routes.find((route) => route.routeCode === routeCode)?.destination ?? "its destination",
+    )}.`);
   }
 
   const locate = useCallback((force = false) => {
@@ -778,7 +987,10 @@ export function TickerApp() {
       id: existing?.id ?? crypto.randomUUID(),
       name,
       stop: stopReference(selectedStop),
-      lineIds: [...selectedLineIds],
+      routes: subscriptions.map(({ lineId, routeCode }) => ({
+        lineId,
+        routeCode,
+      })),
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
       lastEnabledAt: existing?.lastEnabledAt ?? null,
@@ -793,13 +1005,15 @@ export function TickerApp() {
   }
 
   async function enableFavorite(favorite: Favorite) {
-    if (favorite.lineIds.length > 0 && !(await ensureNotificationPermission())) {
+    if (favorite.routes.length > 0 && !(await ensureNotificationPermission())) {
       return;
     }
-    const requested = favorite.lineIds.map(createSubscription);
+    const requested = favorite.routes.map(({ lineId, routeCode }) =>
+      createSubscription(lineId, routeCode),
+    );
     const loaded = await loadStop(favorite.stop, requested);
     if (!loaded) return;
-    if (loaded.validLineIds.length !== favorite.lineIds.length) {
+    if (loaded.validLineIds.length !== favorite.routes.length) {
       setStatus("Some saved lines no longer serve this stop, so we removed them.");
     }
     const enabledAt = new Date().toISOString();
@@ -848,7 +1062,10 @@ export function TickerApp() {
           ? {
               ...item,
               stop: stopReference(selectedStop),
-              lineIds: [...selectedLineIds],
+              routes: subscriptions.map(({ lineId, routeCode }) => ({
+                lineId,
+                routeCode,
+              })),
               updatedAt: new Date().toISOString(),
             }
           : item,
@@ -877,6 +1094,8 @@ export function TickerApp() {
     selectedStopRef.current = null;
     setSelectedStop(null);
     setRoutes([]);
+    setFocusedRouteCode(null);
+    setOpenAlternate(null);
     updateSubscriptions([]);
     setFavorites([]);
     setPickerOpen(true);
@@ -974,11 +1193,21 @@ export function TickerApp() {
                 catalogError={catalogError}
                 catalogLoading={catalogLoading}
                 center={coordinates}
+                directionHeadingDegrees={
+                  focusedRouteCode && selectedStop
+                    ? routeDetails
+                        .get(focusedRouteCode)
+                        ?.stops.find(
+                          (stop) => stop.code === selectedStop.code,
+                        )?.headingDegrees ?? null
+                    : null
+                }
                 focusCenter={mapFocus}
                 isLocating={isLocating}
                 onRefreshLocation={() => locate(true)}
                 onSelectStop={chooseStop}
                 selectedStop={selectedStop}
+                suggestedStop={openAlternate?.stop ?? null}
                 stops={catalogStops}
               />
               <StopCombobox
@@ -1009,13 +1238,29 @@ export function TickerApp() {
 
       {selectedStop && !pickerOpen ? (
         <ArrivalTimeline
+          alternateVehicleKeys={alternateVehicleKeys}
           arrivals={timelineArrivals}
           isLoading={arrivalsLoading || isLoadingStop || arrivalData === null}
           observedAt={arrivalData?.observedAt ?? null}
-          onToggleLine={(lineId) => void toggleLine(lineId)}
-          selectedLineIds={selectedLineIds}
+          onOpenAlternate={(routeCode) =>
+            setOpenAlternate(betterStopsByRoute.get(routeCode) ?? null)
+          }
+          onToggleRoute={(routeCode, lineId) =>
+            void toggleRoute(routeCode, lineId)
+          }
+          selectedRouteCodes={selectedRouteCodes}
         />
       ) : null}
+
+      <AlternateStopDialog
+        currentStop={selectedStop}
+        onClose={() => setOpenAlternate(null)}
+        onConfirm={(option) => {
+          setOpenAlternate(null);
+          void loadStop(option.stop, subscriptionsRef.current);
+        }}
+        option={openAlternate}
+      />
 
       <dialog
         aria-labelledby="favorites-heading"
@@ -1101,7 +1346,9 @@ export function TickerApp() {
                       <span className="block truncate font-semibold">{favorite.name}</span>
                       <span className="block truncate text-xs text-ink/55">
                         {formatTransitName(favorite.stop.name)} ·{" "}
-                        {favorite.lineIds.map(formatTransitName).join(" · ")}
+                        {favorite.routes
+                          .map(({ lineId }) => formatTransitName(lineId))
+                          .join(" · ")}
                       </span>
                     </button>
                     <button

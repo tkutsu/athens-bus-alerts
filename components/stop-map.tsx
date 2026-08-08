@@ -17,9 +17,11 @@ interface StopMapProps {
   catalogError: string | null;
   catalogLoading: boolean;
   center: Coordinates | null;
+  directionHeadingDegrees: number | null;
   focusCenter: Coordinates | null;
   isLocating: boolean;
   selectedStop: StopSummary | null;
+  suggestedStop: Pick<StopSummary, "code" | "latitude" | "longitude"> | null;
   onRefreshLocation: () => void;
   onSelectStop: (stop: StopSummary) => void;
   stops: readonly CatalogStop[];
@@ -64,9 +66,11 @@ export function StopMap({
   catalogError,
   catalogLoading,
   center,
+  directionHeadingDegrees,
   focusCenter,
   isLocating,
   selectedStop,
+  suggestedStop,
   onRefreshLocation,
   onSelectStop,
   stops,
@@ -194,6 +198,7 @@ export function StopMap({
 
     for (const stop of visibleStops) {
       const isSelected = stop.code === selectedStop?.code;
+      const isSuggested = stop.code === suggestedStop?.code;
 
       // Use the original blue stops while a larger orange center identifies selection.
       const marker = L.circleMarker([stop.latitude, stop.longitude], {
@@ -201,7 +206,11 @@ export function StopMap({
         color: "#ffffff",
         opacity: 1,
         weight: isSelected ? 3.5 : 2,
-        fillColor: isSelected ? "#e5562f" : "#2563eb",
+        fillColor: isSelected
+          ? "#e5562f"
+          : isSuggested
+            ? "#16a34a"
+            : "#2563eb",
         fillOpacity: 0.95,
       });
 
@@ -212,9 +221,29 @@ export function StopMap({
         })
         .on("click", () => selectStopRef.current(stop))
         .addTo(markers);
+
+      if (isSelected && directionHeadingDegrees !== null) {
+        const directionIcon = L.divIcon({
+          className: "map-stop-direction-shell",
+          html: `<span class="map-stop-direction" style="transform:rotate(${directionHeadingDegrees}deg)"><span class="map-stop-direction-head"></span><span class="map-stop-direction-tail"></span></span>`,
+          iconAnchor: [14, 14],
+          iconSize: [28, 28],
+        });
+        L.marker([stop.latitude, stop.longitude], {
+          icon: directionIcon,
+          interactive: false,
+          keyboard: false,
+          zIndexOffset: 600,
+        }).addTo(markers);
+      }
     }
     userMarkerRef.current?.setZIndexOffset(1000);
-  }, [selectedStop?.code, visibleStops]);
+  }, [
+    directionHeadingDegrees,
+    selectedStop?.code,
+    suggestedStop?.code,
+    visibleStops,
+  ]);
 
   /** Updates the device location marker. */
   useEffect(() => {

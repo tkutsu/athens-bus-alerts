@@ -5,17 +5,18 @@ import {
   LEGACY_STORAGE_KEY,
   readStoredState,
   STORAGE_KEY,
+  V4_STORAGE_KEY,
   V3_STORAGE_KEY,
   writeStoredState,
 } from "@/lib/storage";
 import { ARRIVAL_CACHE_KEY } from "@/lib/arrival-cache";
 
-describe("stored state v4", () => {
+describe("stored state v5", () => {
   beforeEach(() => window.localStorage.clear());
 
   it("round-trips subscriptions and clears every storage generation", () => {
     const state = {
-      version: 4 as const,
+      version: 5 as const,
       selectedStop: { code: "400075", name: "HSAP N. FALHROY" },
       subscriptions: [createSubscription("218")],
       favorites: [
@@ -23,7 +24,10 @@ describe("stored state v4", () => {
           id: "favorite-1",
           name: "Home",
           stop: { code: "400075", name: "HSAP N. FALHROY" },
-          lineIds: ["218", "500"],
+          routes: [
+            { lineId: "218", routeCode: "2052" },
+            { lineId: "500", routeCode: "2100" },
+          ],
           createdAt: "2026-08-07T10:00:00.000Z",
           updatedAt: "2026-08-07T10:00:00.000Z",
           lastEnabledAt: null,
@@ -39,6 +43,7 @@ describe("stored state v4", () => {
     window.localStorage.setItem(ARRIVAL_CACHE_KEY, "{}");
     clearStoredState();
     expect(window.localStorage.getItem(STORAGE_KEY)).toBeNull();
+    expect(window.localStorage.getItem(V4_STORAGE_KEY)).toBeNull();
     expect(window.localStorage.getItem(V3_STORAGE_KEY)).toBeNull();
     expect(window.localStorage.getItem(LEGACY_STORAGE_KEY)).toBeNull();
     expect(window.localStorage.getItem(ARRIVAL_CACHE_KEY)).toBeNull();
@@ -96,8 +101,11 @@ describe("stored state v4", () => {
     );
 
     const state = readStoredState();
-    expect(state.version).toBe(4);
-    expect(state.favorites[0].lineIds).toEqual(["218", "500"]);
+    expect(state.version).toBe(5);
+    expect(state.favorites[0].routes).toEqual([
+      { lineId: "218", routeCode: null },
+      { lineId: "500", routeCode: null },
+    ]);
     expect(state.subscriptions).toHaveLength(1);
     expect(state.subscriptions[0]).toMatchObject({
       lineId: "218",
@@ -107,6 +115,33 @@ describe("stored state v4", () => {
     expect(state.subscriptions.some((item) => item.lineId === "035")).toBe(
       false,
     );
+  });
+
+  it("migrates a v4 tracked vehicle into its exact route direction", () => {
+    window.localStorage.setItem(
+      V4_STORAGE_KEY,
+      JSON.stringify({
+        version: 4,
+        selectedStop: { code: "400075", name: "Stop" },
+        subscriptions: [
+          {
+            lineId: "218",
+            trackedVehicleKey: "2052:vehicle-1",
+            firedOneMinute: false,
+            predictedZeroAt: null,
+            lastObservedMinutes: 4,
+            recentVehicles: [],
+          },
+        ],
+        favorites: [],
+      }),
+    );
+
+    expect(readStoredState().subscriptions[0]).toMatchObject({
+      lineId: "218",
+      routeCode: "2052",
+      firedLeaveNow: false,
+    });
   });
 
   it("does not reactivate a completed v3 alarm", () => {

@@ -6,6 +6,8 @@ export function isStopCode(value: string): boolean {
   return /^\d{1,8}$/.test(value);
 }
 
+export const isRouteCode = isStopCode;
+
 export function apiError(
   status: number,
   code: ApiErrorPayload["error"]["code"],

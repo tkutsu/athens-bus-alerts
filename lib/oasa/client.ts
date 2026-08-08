@@ -1,6 +1,8 @@
 import type { z } from "zod";
 import {
   arrivalsResponseSchema,
+  busLocationsResponseSchema,
+  routeDetailsResponseSchema,
   routesResponseSchema,
 } from "@/lib/oasa/schemas";
 
@@ -9,7 +11,9 @@ const TIMEOUT_MS = 8_000;
 
 type OasaAction =
   | "webRoutesForStop"
-  | "getStopArrivals";
+  | "getStopArrivals"
+  | "webGetRoutesDetailsAndStops"
+  | "getBusLocation";
 
 export class OasaRequestError extends Error {
   constructor(
@@ -96,5 +100,23 @@ export function getArrivalsForStop(stopCode: string) {
     "getStopArrivals",
     arrivalsResponseSchema,
     [stopCode],
+  );
+}
+
+/** Gets an ordered route shape and its stops. */
+export function getRouteDetails(routeCode: string) {
+  return requestOasa(
+    "webGetRoutesDetailsAndStops",
+    routeDetailsResponseSchema,
+    [routeCode],
+  );
+}
+
+/** Gets the latest telemetry for vehicles assigned to one route. */
+export function getBusLocations(routeCode: string) {
+  return requestOasa(
+    "getBusLocation",
+    busLocationsResponseSchema,
+    [routeCode],
   );
 }

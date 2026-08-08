@@ -45,6 +45,51 @@ describe("evaluateSubscriptions", () => {
     });
   });
 
+  it("scopes tracking to one direction and fires walking time once", () => {
+    const first = evaluateSubscriptions(
+      [subscription("218", { routeCode: "2810" })],
+      [
+        {
+          lineId: "218",
+          routeCode: "2811",
+          vehicleKey: "2811:wrong-way",
+          minutes: 1,
+          walkSeconds: 60,
+        },
+        {
+          lineId: "218",
+          routeCode: "2810",
+          vehicleKey: "2810:right-way",
+          minutes: 3,
+          walkSeconds: 100,
+        },
+      ],
+      NOW,
+    );
+
+    expect(first.subscriptions[0].trackedVehicleKey).toBe("2810:right-way");
+    expect(first.events).toContainEqual({
+      kind: "leave-now",
+      lineId: "218",
+      vehicleKey: "2810:right-way",
+      minutes: 3,
+    });
+    const repeated = evaluateSubscriptions(
+      first.subscriptions,
+      [
+        {
+          lineId: "218",
+          routeCode: "2810",
+          vehicleKey: "2810:right-way",
+          minutes: 3,
+          walkSeconds: 100,
+        },
+      ],
+      new Date(NOW.getTime() + 10_000),
+    );
+    expect(repeated.events.filter((event) => event.kind === "leave-now")).toEqual([]);
+  });
+
   it("warns once and jumps directly to due-now without a warning", () => {
     const first = evaluateSubscriptions(
       [subscription("218")],

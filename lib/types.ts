@@ -14,12 +14,49 @@ export interface ServingRoute {
   routeCode: string;
   lineId: string;
   description: string;
+  descriptionEl: string;
+  descriptionEn: string | null;
+  destination: string;
+  routeType: string | null;
+  routeDistanceMeters: number | null;
 }
 
 export interface Arrival {
   routeCode: string;
   vehicleId: string;
   minutes: number;
+}
+
+export interface RouteStop extends Coordinates {
+  code: string;
+  name: string;
+  street: string | null;
+  headingDegrees: number | null;
+  order: number;
+}
+
+export interface RouteShapePoint extends Coordinates {
+  order: number;
+}
+
+export interface RouteDetails {
+  routeCode: string;
+  origin: string;
+  destination: string;
+  isCircular: boolean;
+  stops: RouteStop[];
+  shape: RouteShapePoint[];
+}
+
+export interface VehicleTelemetry extends Coordinates {
+  routeCode: string;
+  vehicleId: string;
+  recordedAt: string;
+}
+
+export interface UserLocation extends Coordinates {
+  accuracyMeters: number;
+  observedAt: string;
 }
 
 export interface RecentVehicle {
@@ -29,8 +66,11 @@ export interface RecentVehicle {
 
 export interface LineSubscription {
   lineId: string;
+  routeCode: string | null;
   trackedVehicleKey: string | null;
+  firedLeaveNow: boolean;
   firedOneMinute: boolean;
+  predictedLeaveAt: string | null;
   predictedZeroAt: string | null;
   lastObservedMinutes: number | null;
   recentVehicles: RecentVehicle[];
@@ -40,14 +80,14 @@ export interface Favorite {
   id: string;
   name: string;
   stop: Pick<StopSummary, "code" | "name">;
-  lineIds: string[];
+  routes: Array<{ lineId: string; routeCode: string | null }>;
   createdAt: string;
   updatedAt: string;
   lastEnabledAt: string | null;
 }
 
 export interface StoredState {
-  version: 4;
+  version: 5;
   selectedStop: Pick<StopSummary, "code" | "name"> | null;
   subscriptions: LineSubscription[];
   favorites: Favorite[];
