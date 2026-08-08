@@ -56,26 +56,26 @@ describe("dedupeArrivals", () => {
 });
 
 describe("timelinePositionPercent", () => {
-  it("moves one fifteenth of the rail for each elapsed minute", () => {
+  it("moves one twentieth of the rail for each elapsed minute", () => {
     const start = timelinePositionPercent(10, 0, 0);
     const afterOneMinute = timelinePositionPercent(10, 0, 60_000);
 
-    expect(start).toBeCloseTo(66.6667, 3);
-    expect(afterOneMinute).toBeCloseTo(60, 3);
-    expect(start - afterOneMinute).toBeCloseTo(100 / 15, 5);
+    expect(start).toBeCloseTo(50, 3);
+    expect(afterOneMinute).toBeCloseTo(45, 3);
+    expect(start - afterOneMinute).toBeCloseTo(100 / 20, 5);
   });
 
   it("reaches the stop after the current ETA and clamps distant buses", () => {
     expect(timelinePositionPercent(4, 0, 4 * 60_000)).toBe(0);
-    expect(timelinePositionPercent(19, 0, 0)).toBe(100);
+    expect(timelinePositionPercent(21, 0, 0)).toBe(100);
   });
 
-  it("stays still beyond 15 minutes and starts at the 15-minute edge", () => {
-    expect(timelinePositionPercent(19, 0, 3 * 60_000)).toBe(100);
-    expect(timelinePositionPercent(19, 0, 4 * 60_000)).toBe(100);
+  it("stays still beyond 20 minutes and starts at the 20-minute edge", () => {
+    expect(timelinePositionPercent(24, 0, 3 * 60_000)).toBe(100);
+    expect(timelinePositionPercent(24, 0, 4 * 60_000)).toBe(100);
     expect(
-      timelinePositionPercent(19, 0, 4 * 60_000 + 15_000),
-    ).toBeCloseTo(98.3333, 3);
+      timelinePositionPercent(24, 0, 4 * 60_000 + 15_000),
+    ).toBeCloseTo(98.75, 3);
   });
 });
 
@@ -157,6 +157,24 @@ describe("backwardJumpVehicleKeys", () => {
       ),
     ).toEqual(new Set());
   });
+
+  it("does not animate changes that remain beyond the 20-minute cutoff", () => {
+    const arrival: TimelineArrival = {
+      routeCode: "2810",
+      vehicleId: "218-a",
+      vehicleKey: "2810:218-a",
+      lineId: "218",
+      description: "Line 218",
+      minutes: 23,
+    };
+
+    expect(
+      backwardJumpVehicleKeys(
+        new Map([[arrival.vehicleKey, 22]]),
+        [arrival],
+      ),
+    ).toEqual(new Set());
+  });
 });
 
 describe("forwardJumpVehicleKeys", () => {
@@ -175,6 +193,24 @@ describe("forwardJumpVehicleKeys", () => {
         new Map([[arrival.vehicleKey, 4]]),
         [arrival],
         0.5,
+      ).has(arrival.vehicleKey),
+    ).toBe(true);
+  });
+
+  it("detects a bus crossing inward from the 20-minute cutoff", () => {
+    const arrival: TimelineArrival = {
+      routeCode: "2810",
+      vehicleId: "218-a",
+      vehicleKey: "2810:218-a",
+      lineId: "218",
+      description: "Line 218",
+      minutes: 19,
+    };
+
+    expect(
+      forwardJumpVehicleKeys(
+        new Map([[arrival.vehicleKey, 22]]),
+        [arrival],
       ).has(arrival.vehicleKey),
     ).toBe(true);
   });
