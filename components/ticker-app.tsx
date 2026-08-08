@@ -312,9 +312,11 @@ export function TickerApp() {
   );
   const searchResult = useMemo(
     () =>
-      coordinates
-        ? searchStopNames(catalogStops, deferredSearchQuery, coordinates)
-        : { stops: [], total: 0 },
+      searchStopNames(
+        catalogStops,
+        deferredSearchQuery,
+        coordinates ?? undefined,
+      ),
     [catalogStops, coordinates, deferredSearchQuery],
   );
   const isSearching = searchQuery !== deferredSearchQuery;
@@ -979,26 +981,27 @@ export function TickerApp() {
                 selectedStop={selectedStop}
                 stops={catalogStops}
               />
-              {coordinates && (
-                <StopCombobox
-                  isLoading={
-                    catalogLoading ||
-                    isSearching ||
-                    (isLocating && nearbyStops.length === 0)
-                  }
-                  onQueryChange={setSearchQuery}
-                  onSelect={chooseStop}
-                  options={
-                    searchQuery.trim().length >= 2
-                      ? searchResult.stops
-                      : nearbyStops
-                  }
-                  query={searchQuery}
-                  resultTotal={
-                    searchQuery.trim().length >= 2 ? searchResult.total : null
-                  }
-                />
-              )}
+              <StopCombobox
+                hasLocation={coordinates !== null}
+                isLoading={
+                  catalogLoading ||
+                  isSearching ||
+                  (searchQuery.trim().length < 2 &&
+                    isLocating &&
+                    nearbyStops.length === 0)
+                }
+                onQueryChange={setSearchQuery}
+                onSelect={chooseStop}
+                options={
+                  searchQuery.trim().length >= 2
+                    ? searchResult.stops
+                    : nearbyStops
+                }
+                query={searchQuery}
+                resultTotal={
+                  searchQuery.trim().length >= 2 ? searchResult.total : null
+                }
+              />
             </div>
           </div>
         </div>

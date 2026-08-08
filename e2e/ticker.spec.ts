@@ -100,6 +100,26 @@ test.beforeEach(async ({ context }) => {
   });
 });
 
+test("keeps stop name search available without location", async ({
+  context,
+  page,
+}) => {
+  await context.clearPermissions();
+  await mockStopData(page);
+  await page.goto("/");
+
+  const picker = page.getByRole("combobox", {
+    name: "Search and choose a stop",
+  });
+  const option = page.getByRole("option", { name: /hsap n\. falhroy/i });
+
+  await expect(picker).toBeVisible();
+  await picker.fill("hsap");
+  await expect(option).toBeVisible();
+  await expect(option.locator(".font-mono")).toHaveCount(0);
+  await expect(page.getByText("Showing 1 of 1.", { exact: true })).toBeVisible();
+});
+
 test("centers a borderless empty state without timeline connectors", async ({
   page,
 }) => {

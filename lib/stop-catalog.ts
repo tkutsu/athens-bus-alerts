@@ -23,15 +23,15 @@ export interface MapBounds {
   west: number;
 }
 
-/** Adds user-relative distance and UI fields to one catalogue stop. */
+/** Adds UI fields and a user-relative distance when an origin is available. */
 function summarizeStop(
   stop: CatalogStop,
-  origin: Coordinates,
+  origin?: Coordinates,
 ): StopSummary {
   return {
     ...stop,
     street: null,
-    distanceMeters: haversineMeters(origin, stop),
+    distanceMeters: origin ? haversineMeters(origin, stop) : 0,
   };
 }
 
@@ -51,11 +51,11 @@ export function findClosestStops(
     .slice(0, limit);
 }
 
-/** Searches stop names and sorts all matches relative to the user. */
+/** Searches stop names, sorting by distance or alphabetically without location. */
 export function searchStopNames(
   stops: readonly CatalogStop[],
   query: string,
-  origin: Coordinates,
+  origin?: Coordinates,
   limit = 50,
 ): { stops: StopSummary[]; total: number } {
   const normalizedQuery = normalizeSearchText(query);
@@ -70,10 +70,11 @@ export function searchStopNames(
       );
     })
     .map((stop) => summarizeStop(stop, origin))
-    .sort(
-      (a, b) =>
-        a.distanceMeters - b.distanceMeters ||
-        a.name.localeCompare(b.name, "el"),
+    .sort((a, b) =>
+      origin
+        ? a.distanceMeters - b.distanceMeters ||
+          a.name.localeCompare(b.name, "el")
+        : a.name.localeCompare(b.name, "el") || a.code.localeCompare(b.code),
     );
 
   return { stops: matches.slice(0, limit), total: matches.length };

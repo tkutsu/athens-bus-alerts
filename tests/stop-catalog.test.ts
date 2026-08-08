@@ -50,6 +50,13 @@ describe("client stop catalogue", () => {
     expect(searchStopNames(stops, "400075", origin).total).toBe(0);
   });
 
+  it("searches alphabetically without a location", () => {
+    const result = searchStopNames(stops, "ινη");
+
+    expect(result.stops.map((stop) => stop.code)).toEqual(["1", "3"]);
+    expect(result.stops.every((stop) => stop.distanceMeters === 0)).toBe(true);
+  });
+
   it("filters the catalogue to the visible map bounds", () => {
     const result = findStopsInBounds(stops, {
       north: 37.99,
