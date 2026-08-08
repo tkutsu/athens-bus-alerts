@@ -26,8 +26,6 @@ interface ArrivalTimelineProps {
   arrivals: readonly TimelineArrival[];
   isLoading: boolean;
   observedAt: string | null;
-  alternateVehicleKeys?: ReadonlySet<string>;
-  onOpenAlternate?: (routeCode: string) => void;
   onToggleRoute: (routeCode: string, lineId: string) => void;
   selectedRouteCodes: readonly string[];
 }
@@ -112,15 +110,6 @@ function DirectionArrow() {
       viewBox="0 0 14 10"
     >
       <path d="M3 5h8M8 2l3 3-3 3" />
-    </svg>
-  );
-}
-
-function FootstepsIcon() {
-  return (
-    <svg aria-hidden="true" fill="currentColor" viewBox="0 0 24 24">
-      <ellipse cx="8" cy="7" rx="2.8" ry="4.2" transform="rotate(-18 8 7)" />
-      <ellipse cx="15.8" cy="16.4" rx="2.8" ry="4.2" transform="rotate(-18 15.8 16.4)" />
     </svg>
   );
 }
@@ -233,8 +222,6 @@ export function ArrivalTimeline({
   arrivals,
   isLoading,
   observedAt,
-  alternateVehicleKeys = new Set(),
-  onOpenAlternate,
   onToggleRoute,
   selectedRouteCodes,
 }: ArrivalTimelineProps) {
@@ -459,9 +446,6 @@ export function ArrivalTimeline({
                     arrival.confidence === "stale" ||
                     arrival.confidence === "unconfirmed";
                   const slipping = arrival.confidence === "slipping";
-                  const hasAlternate = alternateVehicleKeys.has(
-                    arrival.vehicleKey,
-                  );
                   const entranceTiming = arrivalEntranceTiming(
                     arrival.vehicleKey,
                   );
@@ -562,17 +546,6 @@ export function ArrivalTimeline({
                           )}
                         </span>
                       </button>
-                      {hasAlternate && onOpenAlternate && (
-                        <button
-                          aria-label={`Better nearby stop for line ${lineName}`}
-                          className="arrival-footsteps"
-                          onClick={() => onOpenAlternate(arrival.routeCode)}
-                          title="Better nearby stop"
-                          type="button"
-                        >
-                          <FootstepsIcon />
-                        </button>
-                      )}
                     </div>
                   );
                 })}

@@ -33,7 +33,6 @@ export const routeStopSchema = z.object({
   StopDescrEng: nullableText,
   StopStreet: nullableText,
   StopStreetEng: nullableText,
-  StopHeading: nullableText,
   StopLat: z.string(),
   StopLng: z.string(),
   RouteStopOrder: z.string(),
@@ -46,19 +45,9 @@ export const routeDetailsResponseSchema = z.object({
   stops: z.array(routeStopSchema),
 });
 
-export const busLocationSchema = z.object({
-  VEH_NO: z.string(),
-  CS_DATE: z.string(),
-  CS_LAT: z.string(),
-  CS_LNG: z.string(),
-  ROUTE_CODE: z.string(),
-});
-
 export const routesResponseSchema = z.array(routeSchema).nullable();
 export const arrivalsResponseSchema = z.array(arrivalSchema).nullable();
-export const busLocationsResponseSchema = z.array(busLocationSchema).nullable();
 
 export type OasaRoute = z.infer<typeof routeSchema>;
 export type OasaArrival = z.infer<typeof arrivalSchema>;
 export type OasaRouteDetails = z.infer<typeof routeDetailsResponseSchema>;
-export type OasaBusLocation = z.infer<typeof busLocationSchema>;

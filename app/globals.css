@@ -623,20 +623,6 @@ textarea:disabled {
   animation: confidence-question-orbit 2.1s ease-in-out infinite;
 }
 
-.arrival-footsteps {
-  display: grid;
-  width: 1.9rem;
-  height: 1.9rem;
-  margin-left: 0.35rem;
-  place-items: center;
-  border: 1px solid rgb(var(--signal-rgb) / 0.5);
-  border-radius: 999px;
-  background: rgb(var(--signal-rgb) / 0.1);
-  padding: 0.42rem;
-  color: var(--signal);
-  animation: footsteps-nudge 1.8s ease-in-out infinite;
-}
-
 .arrival-timeline-row-flip .arrival-timeline-bus-marker {
   animation: bus-jump-flip 960ms cubic-bezier(0.42, 0, 0.58, 1) both;
 }
@@ -757,39 +743,6 @@ textarea:disabled {
   opacity: 0.72;
 }
 
-.map-stop-direction-shell {
-  pointer-events: none;
-  background: transparent;
-}
-
-.map-stop-direction {
-  position: relative;
-  display: block;
-  width: 28px;
-  height: 28px;
-  transform-origin: center;
-}
-
-.map-stop-direction-head {
-  position: absolute;
-  top: 5px;
-  left: 8px;
-  width: 11px;
-  height: 11px;
-  border-top: 3px solid white;
-  border-right: 3px solid white;
-  transform: rotate(-45deg);
-}
-
-.map-stop-direction-tail {
-  position: absolute;
-  top: 13px;
-  left: 13px;
-  width: 2px;
-  height: 5px;
-  background: white;
-}
-
 .urgent-toast {
   box-shadow:
     0 14px 36px rgb(0 0 0 / 0.34),
@@ -875,11 +828,6 @@ textarea:disabled {
   50% { transform: translateY(-50%) translate(-0.22rem, -0.22rem) rotate(8deg); }
 }
 
-@keyframes footsteps-nudge {
-  0%, 100% { transform: translateX(0); }
-  50% { transform: translateX(0.18rem); }
-}
-
 @keyframes toast-countdown {
   from {
     width: 100%;
@@ -921,8 +869,7 @@ textarea:disabled {
   }
 
   .arrival-confidence-questions,
-  .arrival-confidence-sleep,
-  .arrival-footsteps {
+  .arrival-confidence-sleep {
     animation: none;
   }
 

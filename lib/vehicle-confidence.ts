@@ -1,4 +1,4 @@
-import type { Arrival, VehicleTelemetry } from "@/lib/types";
+import type { Arrival } from "@/lib/types";
 
 export type VehicleConfidence = "normal" | "stale" | "unconfirmed" | "slipping";
 
@@ -21,7 +21,6 @@ export interface ConfidenceUpdate {
   arrivals: Array<Arrival & { confidence: VehicleConfidence }>;
 }
 
-const TELEMETRY_FRESH_MS = 90_000;
 const STALE_ARRIVAL_MS = 90_000;
 
 function vehicleKey(arrival: Pick<Arrival, "routeCode" | "vehicleId">) {
@@ -43,20 +42,11 @@ export function updateVehicleConfidence(
   previous: ReadonlyMap<string, VehicleConfidenceRecord>,
   arrivals: readonly Arrival[],
   observedAt: string,
-  telemetry: readonly VehicleTelemetry[] = [],
   nowMs = Date.now(),
 ): ConfidenceUpdate {
   const observedAtMs = new Date(observedAt).getTime();
   const stale = nowMs - observedAtMs > STALE_ARRIVAL_MS;
   const current = new Map(arrivals.map((arrival) => [vehicleKey(arrival), arrival]));
-  const freshTelemetry = new Set(
-    telemetry
-      .filter(
-        (vehicle) =>
-          nowMs - new Date(vehicle.recordedAt).getTime() <= TELEMETRY_FRESH_MS,
-      )
-      .map(vehicleKey),
-  );
   const records = new Map<string, VehicleConfidenceRecord>();
 
   for (const [key, arrival] of current) {
@@ -98,8 +88,7 @@ export function updateVehicleConfidence(
       old.lastSnapshotAtMs === observedAtMs
         ? old.missingSnapshots
         : old.missingSnapshots + 1;
-    const maximumMissingSnapshots = freshTelemetry.has(key) ? 2 : 1;
-    if (missingSnapshots > maximumMissingSnapshots) continue;
+    if (missingSnapshots > 1) continue;
     if (nowMs - old.samples.at(-1)!.observedAtMs > 120_000) continue;
     records.set(key, { ...old, lastSnapshotAtMs: observedAtMs, missingSnapshots });
   }

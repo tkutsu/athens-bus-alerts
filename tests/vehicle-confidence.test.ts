@@ -2,28 +2,18 @@ import { describe, expect, it } from "vitest";
 import { updateVehicleConfidence } from "@/lib/vehicle-confidence";
 
 describe("vehicle confidence", () => {
-  it("keeps one fresh-telemetry ghost as unconfirmed", () => {
+  it("keeps one recent ghost as unconfirmed", () => {
     const observedAt = "2026-08-08T10:00:00.000Z";
     const first = updateVehicleConfidence(
       new Map(),
       [{ routeCode: "10", vehicleId: "bus", minutes: 5 }],
       observedAt,
-      [],
       Date.parse(observedAt),
     );
     const second = updateVehicleConfidence(
       first.records,
       [],
       "2026-08-08T10:00:30.000Z",
-      [
-        {
-          routeCode: "10",
-          vehicleId: "bus",
-          latitude: 37.98,
-          longitude: 23.72,
-          recordedAt: "2026-08-08T10:00:25.000Z",
-        },
-      ],
       Date.parse("2026-08-08T10:00:30.000Z"),
     );
     expect(second.arrivals[0].confidence).toBe("unconfirmed");
@@ -42,7 +32,6 @@ describe("vehicle confidence", () => {
         records,
         [{ routeCode: "10", vehicleId: "bus", minutes }],
         time,
-        [],
         Date.parse(time),
       );
       records = result.records;

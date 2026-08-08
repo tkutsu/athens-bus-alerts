@@ -36,27 +36,18 @@ import type {
 import { findClosestStops, searchStopNames } from "@/lib/stop-catalog";
 import { useArrivalPolling } from "@/hooks/use-arrival-polling";
 import { useStopCatalog } from "@/hooks/use-stop-catalog";
-import { useCatchPolling } from "@/hooks/use-catch-polling";
 import { useRouteDetails } from "@/hooks/use-route-details";
 import { StopCombobox } from "@/components/stop-combobox";
 import { StopMap } from "@/components/stop-map";
-import { AlternateStopDialog } from "@/components/alternate-stop-dialog";
 import {
   ArrivalTimeline,
   type TimelineArrival,
 } from "@/components/arrival-timeline";
 import {
-  alternateStopCandidates,
-  bestAlternateStop,
-  catchOptionsForStop,
-  representativeCatchOption,
-  type BetterStopOption,
-} from "@/lib/catch-options";
-import {
   updateVehicleConfidence,
   type VehicleConfidenceRecord,
 } from "@/lib/vehicle-confidence";
-import { estimateWalk, isUsableLocation } from "@/lib/walking";
+import { estimateWalkSeconds, isUsableLocation } from "@/lib/walking";
 
 const TOAST_DISMISS_MS = 5_000;
 const LOCATION_MIN_MOVEMENT_METERS = 10;
@@ -291,9 +282,6 @@ export function TickerApp() {
     left: number;
     top: number;
   } | null>(null);
-  const [focusedRouteCode, setFocusedRouteCode] = useState<string | null>(null);
-  const [openAlternate, setOpenAlternate] =
-    useState<BetterStopOption | null>(null);
   const favoritesDialogRef = useRef<HTMLDialogElement | null>(null);
   const confidenceRecordsRef = useRef(
     new Map<string, VehicleConfidenceRecord>(),
@@ -360,11 +348,7 @@ export function TickerApp() {
     [catalogStops, coordinates, deferredSearchQuery],
   );
   const isSearching = searchQuery !== deferredSearchQuery;
-  const routeCodesForDetails = useMemo(
-    () => selectedRouteCodes,
-    [selectedRouteCodes],
-  );
-  const { details: routeDetails } = useRouteDetails(routeCodesForDetails);
+  const { details: routeDetails } = useRouteDetails(selectedRouteCodes);
 
   /** Applies a fresh device position and keeps selected-stop distance in sync. */
   const applyPosition = useCallback(
@@ -476,11 +460,6 @@ export function TickerApp() {
         selectedStopRef.current = stop;
         setSelectedStop(stop);
         setRoutes(servingRoutes);
-        setFocusedRouteCode(
-          nextSubscriptions.find((subscription) => subscription.routeCode)
-            ?.routeCode ?? null,
-        );
-        setOpenAlternate(null);
         updateSubscriptions(nextSubscriptions);
         setPickerOpen(false);
         return {
@@ -586,24 +565,6 @@ export function TickerApp() {
     };
   }, [favoriteMenu]);
 
-  const candidateStopsByRoute = useMemo(() => {
-    const result = new Map<string, readonly string[]>();
-    if (!selectedStop || !isUsableLocation(userLocation)) return result;
-    for (const routeCode of selectedRouteCodes) {
-      const detail = routeDetails.get(routeCode);
-      if (!detail) continue;
-      result.set(
-        routeCode,
-        alternateStopCandidates(
-          detail.stops,
-          selectedStop.code,
-          userLocation,
-        ).map((stop) => stop.code),
-      );
-    }
-    return result;
-  }, [routeDetails, selectedRouteCodes, selectedStop, userLocation]);
-  const { states: catchStates } = useCatchPolling(candidateStopsByRoute);
   const [confidenceArrivals, setConfidenceArrivals] = useState<
     ReturnType<typeof updateVehicleConfidence>["arrivals"]
   >([]);
@@ -620,15 +581,11 @@ export function TickerApp() {
   useEffect(() => {
     if (!arrivalData) return;
     const timeout = window.setTimeout(() => {
-      const telemetry = [...catchStates.values()].flatMap(
-        (state) => state.vehicles,
-      );
       const sameStop = confidenceStopCodeRef.current === selectedStop?.code;
       const update = updateVehicleConfidence(
         sameStop ? confidenceRecordsRef.current : new Map(),
         arrivalData.arrivals,
         arrivalData.observedAt,
-        telemetry,
         confidenceClock,
       );
       confidenceStopCodeRef.current = selectedStop?.code ?? null;
@@ -636,7 +593,7 @@ export function TickerApp() {
       setConfidenceArrivals(update.arrivals);
     }, 0);
     return () => window.clearTimeout(timeout);
-  }, [arrivalData, catchStates, confidenceClock, selectedStop?.code]);
+  }, [arrivalData, confidenceClock, selectedStop?.code]);
 
   const timelineArrivals = useMemo<TimelineArrival[]>(() => {
     const routesByCode = new Map(
@@ -658,47 +615,6 @@ export function TickerApp() {
     });
   }, [confidenceArrivals, routes]);
 
-  const betterStopsByRoute = useMemo(() => {
-    const result = new Map<string, BetterStopOption>();
-    if (!selectedStop || !isUsableLocation(userLocation)) return result;
-    for (const routeCode of selectedRouteCodes) {
-      const detail = routeDetails.get(routeCode);
-      const state = catchStates.get(routeCode);
-      if (!detail || !state) continue;
-      const baseline = representativeCatchOption(
-        catchOptionsForStop(
-          selectedStop,
-          (arrivalData?.arrivals ?? []).filter(
-            (arrival) => arrival.routeCode === routeCode,
-          ),
-          userLocation,
-        ),
-      );
-      const stops = new Map(detail.stops.map((stop) => [stop.code, stop]));
-      const alternatives = state.stopArrivals.flatMap(({ stopCode, arrivals }) => {
-        const stop = stops.get(stopCode);
-        return stop ? catchOptionsForStop(stop, arrivals, userLocation) : [];
-      });
-      const better = bestAlternateStop(baseline, alternatives);
-      if (better) result.set(routeCode, better);
-    }
-    return result;
-  }, [
-    arrivalData?.arrivals,
-    catchStates,
-    routeDetails,
-    selectedRouteCodes,
-    selectedStop,
-    userLocation,
-  ]);
-  const alternateVehicleKeys = useMemo(() => {
-    const keys = new Set<string>();
-    for (const [routeCode, option] of betterStopsByRoute) {
-      keys.add(`${routeCode}:${option.baseline.arrival.vehicleId}`);
-    }
-    return keys;
-  }, [betterStopsByRoute]);
-
   const candidates = useMemo<CandidateArrival[]>(
     () =>
       timelineArrivals
@@ -710,7 +626,7 @@ export function TickerApp() {
           minutes: arrival.minutes,
           walkSeconds:
             selectedStop && isUsableLocation(userLocation)
-              ? estimateWalk(userLocation, selectedStop).seconds
+              ? estimateWalkSeconds(userLocation, selectedStop)
               : undefined,
         })),
     [selectedStop, timelineArrivals, userLocation],
@@ -851,18 +767,12 @@ export function TickerApp() {
   async function toggleRoute(routeCode: string, lineId: string) {
     const isSelected = selectedRouteCodes.includes(routeCode);
     if (isSelected) {
-      const remainingRoute = subscriptionsRef.current.find(
-        (item) => item.routeCode && item.routeCode !== routeCode,
-      )?.routeCode;
       updateSubscriptions((current) =>
         current.filter(
           (item) =>
             item.routeCode !== routeCode &&
             !(item.routeCode === null && item.lineId === lineId),
         ),
-      );
-      setFocusedRouteCode((current) =>
-        current === routeCode ? remainingRoute ?? null : current,
       );
       setStatus(`Tracking is off for ${formatTransitName(lineId)} in this direction.`);
       return;
@@ -892,7 +802,6 @@ export function TickerApp() {
       ),
       createSubscription(lineId, routeCode),
     ]);
-    setFocusedRouteCode(routeCode);
     setStatus(`Tracking ${formatTransitName(lineId)} toward ${formatTransitName(
       detail?.destination ?? routes.find((route) => route.routeCode === routeCode)?.destination ?? "its destination",
     )}.`);
@@ -1126,8 +1035,6 @@ export function TickerApp() {
     selectedStopRef.current = null;
     setSelectedStop(null);
     setRoutes([]);
-    setFocusedRouteCode(null);
-    setOpenAlternate(null);
     updateSubscriptions([]);
     setFavorites([]);
     setFavoriteMenu(null);
@@ -1226,21 +1133,11 @@ export function TickerApp() {
                 catalogError={catalogError}
                 catalogLoading={catalogLoading}
                 center={coordinates}
-                directionHeadingDegrees={
-                  focusedRouteCode && selectedStop
-                    ? routeDetails
-                        .get(focusedRouteCode)
-                        ?.stops.find(
-                          (stop) => stop.code === selectedStop.code,
-                        )?.headingDegrees ?? null
-                    : null
-                }
                 focusCenter={mapFocus}
                 isLocating={isLocating}
                 onRefreshLocation={() => locate(true)}
                 onSelectStop={chooseStop}
                 selectedStop={selectedStop}
-                suggestedStop={openAlternate?.stop ?? null}
                 stops={catalogStops}
               />
               <StopCombobox
@@ -1271,29 +1168,15 @@ export function TickerApp() {
 
       {selectedStop && !pickerOpen ? (
         <ArrivalTimeline
-          alternateVehicleKeys={alternateVehicleKeys}
           arrivals={timelineArrivals}
           isLoading={arrivalsLoading || isLoadingStop || arrivalData === null}
           observedAt={arrivalData?.observedAt ?? null}
-          onOpenAlternate={(routeCode) =>
-            setOpenAlternate(betterStopsByRoute.get(routeCode) ?? null)
-          }
           onToggleRoute={(routeCode, lineId) =>
             void toggleRoute(routeCode, lineId)
           }
           selectedRouteCodes={selectedRouteCodes}
         />
       ) : null}
-
-      <AlternateStopDialog
-        currentStop={selectedStop}
-        onClose={() => setOpenAlternate(null)}
-        onConfirm={(option) => {
-          setOpenAlternate(null);
-          void loadStop(option.stop, subscriptionsRef.current);
-        }}
-        option={openAlternate}
-      />
 
       <dialog
         aria-labelledby="favorites-heading"
