@@ -715,6 +715,11 @@ textarea:disabled {
   font-weight: 800;
 }
 
+.arrival-bus-code {
+  position: relative;
+  top: 1.5px;
+}
+
 .arrival-bus-eta {
   position: relative;
   left: -0.45rem;
