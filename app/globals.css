@@ -194,6 +194,11 @@ textarea:disabled {
   box-shadow: 0 20px 60px rgb(0 0 0 / 0.32);
 }
 
+.favorite-menu-popup {
+  position: fixed;
+  z-index: 10;
+}
+
 .theme-switch {
   position: relative;
   display: inline-flex;
@@ -716,6 +721,22 @@ textarea:disabled {
   flex: 0 0 auto;
   color: rgb(var(--ink-rgb) / 0.58);
   text-align: center;
+}
+
+.arrival-bus-eta-due {
+  display: grid;
+  place-items: center;
+  color: #16a34a;
+}
+
+.arrival-due-check {
+  display: block;
+  width: 1.15rem;
+  height: 1.15rem;
+}
+
+[data-theme="dark"] .arrival-bus-eta-due {
+  color: #4ade80;
 }
 
 .arrival-direction-arrow {

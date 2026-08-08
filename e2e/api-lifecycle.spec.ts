@@ -33,6 +33,28 @@ function routePayload(routeCode: string, lineId: string) {
   };
 }
 
+async function expectUserMarkerCentered(page: Page) {
+  const marker = page.locator(".map-user-location-marker");
+  const map = page.getByLabel("Map of OASA bus stops");
+  await expect(marker).toBeVisible();
+  await expect
+    .poll(async () => {
+      const [markerBox, mapBox] = await Promise.all([
+        marker.boundingBox(),
+        map.boundingBox(),
+      ]);
+      if (!markerBox || !mapBox) return Number.POSITIVE_INFINITY;
+      const longitudeOffset = Math.abs(
+        markerBox.x + 14 - (mapBox.x + mapBox.width / 2),
+      );
+      const latitudeOffset = Math.abs(
+        markerBox.y + 34 - (mapBox.y + mapBox.height / 2),
+      );
+      return Math.max(longitudeOffset, latitudeOffset);
+    })
+    .toBeLessThan(2);
+}
+
 test.beforeEach(async ({ context }) => {
   await context.grantPermissions(["geolocation"]);
   await context.setGeolocation({
@@ -257,17 +279,34 @@ test("watches location and keeps a restored stop distance current", async ({
     },
   );
   await expect(stopTab).toContainText(/[1-9]\d* m away/);
-
   await stopTab.click();
-  await page
-    .getByRole("button", { name: "Refresh and center on your location" })
-    .click();
+  await expectUserMarkerCentered(page);
+
+  const locationButton = page.getByRole("button", {
+    name: "Refresh and center on your location",
+  });
+  const locationButtonShape = await locationButton.evaluate((element) => {
+    const box = element.getBoundingClientRect();
+    return {
+      borderRadius: Number.parseFloat(getComputedStyle(element).borderRadius),
+      height: box.height,
+      width: box.width,
+    };
+  });
+  expect(locationButtonShape.width).toBe(locationButtonShape.height);
+  expect(locationButtonShape.borderRadius).toBeGreaterThanOrEqual(
+    locationButtonShape.width / 2,
+  );
+  await expect(page.getByText("Your position", { exact: true })).toHaveCount(0);
+
+  await locationButton.click();
   await expect
     .poll(() => page.evaluate(() => window.__locationRefreshCalls))
     .toBe(1);
   expect(await page.evaluate(() => window.__locationRefreshHighAccuracy)).toBe(
     true,
   );
+  await expectUserMarkerCentered(page);
 });
 
 declare global {
