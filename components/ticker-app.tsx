@@ -286,6 +286,11 @@ export function TickerApp() {
   const [searchQuery, setSearchQuery] = useState("");
   const [favoriteName, setFavoriteName] = useState("");
   const [favoritesOpen, setFavoritesOpen] = useState(false);
+  const [favoriteMenu, setFavoriteMenu] = useState<{
+    favoriteId: string;
+    left: number;
+    top: number;
+  } | null>(null);
   const [focusedRouteCode, setFocusedRouteCode] = useState<string | null>(null);
   const [openAlternate, setOpenAlternate] =
     useState<BetterStopOption | null>(null);
@@ -381,6 +386,7 @@ export function TickerApp() {
       locationDeniedRef.current = false;
       coordinatesRef.current = nextCoordinates;
       setCoordinates(nextCoordinates);
+      if (!previousCoordinates) setMapFocus(nextCoordinates);
       setUserLocation({
         ...nextCoordinates,
         accuracyMeters: position.coords.accuracy,
@@ -560,19 +566,25 @@ export function TickerApp() {
   }, [favoritesOpen]);
 
   useEffect(() => {
-    const closeMenus = (event: PointerEvent) => {
-      if (!(event.target instanceof Node)) return;
-      document
-        .querySelectorAll<HTMLDetailsElement>(
-          "details[data-favorite-menu][open]",
-        )
-        .forEach((menu) => {
-          if (!menu.contains(event.target as Node)) menu.removeAttribute("open");
-        });
+    if (!favoriteMenu) return;
+
+    const closeMenu = (event: PointerEvent) => {
+      if (!(event.target instanceof Element)) return;
+      if (event.target.closest("[data-favorite-menu-popup]")) return;
+      if (event.target.closest("[data-favorite-menu-trigger]")) return;
+      setFavoriteMenu(null);
     };
-    document.addEventListener("pointerdown", closeMenus);
-    return () => document.removeEventListener("pointerdown", closeMenus);
-  }, []);
+    const closeOnViewportChange = () => setFavoriteMenu(null);
+
+    document.addEventListener("pointerdown", closeMenu);
+    window.addEventListener("resize", closeOnViewportChange);
+    window.addEventListener("scroll", closeOnViewportChange, true);
+    return () => {
+      document.removeEventListener("pointerdown", closeMenu);
+      window.removeEventListener("resize", closeOnViewportChange);
+      window.removeEventListener("scroll", closeOnViewportChange, true);
+    };
+  }, [favoriteMenu]);
 
   const candidateStopsByRoute = useMemo(() => {
     const result = new Map<string, readonly string[]>();
@@ -1079,8 +1091,28 @@ export function TickerApp() {
     setFavorites((current) => current.filter((item) => item.id !== favorite.id));
   }
 
-  function closeFavoriteMenu(button: HTMLButtonElement) {
-    button.closest("details")?.removeAttribute("open");
+  function toggleFavoriteMenu(
+    favoriteId: string,
+    button: HTMLButtonElement,
+  ) {
+    if (favoriteMenu?.favoriteId === favoriteId) {
+      setFavoriteMenu(null);
+      return;
+    }
+
+    const rect = button.getBoundingClientRect();
+    const menuWidth = 128;
+    const menuHeight = 96;
+    const viewportMargin = 8;
+    const left = Math.min(
+      window.innerWidth - menuWidth - viewportMargin,
+      Math.max(viewportMargin, rect.right - menuWidth),
+    );
+    const top =
+      rect.bottom + menuHeight + viewportMargin <= window.innerHeight
+        ? rect.bottom + 4
+        : Math.max(viewportMargin, rect.top - menuHeight - 4);
+    setFavoriteMenu({ favoriteId, left, top });
   }
 
   function forgetEverything() {
@@ -1098,6 +1130,7 @@ export function TickerApp() {
     setOpenAlternate(null);
     updateSubscriptions([]);
     setFavorites([]);
+    setFavoriteMenu(null);
     setPickerOpen(true);
     setFavoritesOpen(false);
     setStatus("Your saved data was cleared.");
@@ -1272,7 +1305,10 @@ export function TickerApp() {
         onClick={(event) => {
           if (event.target === event.currentTarget) setFavoritesOpen(false);
         }}
-        onClose={() => setFavoritesOpen(false)}
+        onClose={() => {
+          setFavoriteMenu(null);
+          setFavoritesOpen(false);
+        }}
         ref={favoritesDialogRef}
       >
         <div className="favorites-sheet">
@@ -1328,7 +1364,7 @@ export function TickerApp() {
             </form>
           )}
 
-          <div className="max-h-[55vh] overflow-y-auto">
+          <div className="favorites-list max-h-[55vh] overflow-y-auto">
             {favorites.length === 0 ? (
               <div className="py-8 text-center text-sm text-ink/45">
                 <p>No favorites saved yet.</p>
@@ -1358,47 +1394,73 @@ export function TickerApp() {
                     >
                       Enable
                     </button>
-                    <details className="relative" data-favorite-menu>
-                      <summary className="small-action list-none">•••</summary>
-                      <div className="absolute right-0 z-20 mt-1 w-32 border border-ink/15 bg-paper p-1 shadow-lg">
-                        <button
-                          className="menu-action"
-                          onClick={(event) => {
-                            renameFavorite(favorite);
-                            closeFavoriteMenu(event.currentTarget);
-                          }}
-                          type="button"
-                        >
-                          Rename
-                        </button>
-                        <button
-                          className="menu-action"
-                          onClick={(event) => {
-                            updateFavorite(favorite);
-                            closeFavoriteMenu(event.currentTarget);
-                          }}
-                          type="button"
-                        >
-                          Update
-                        </button>
-                        <button
-                          className="menu-action text-red-700"
-                          onClick={(event) => {
-                            deleteFavorite(favorite);
-                            closeFavoriteMenu(event.currentTarget);
-                          }}
-                          type="button"
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </details>
+                    <button
+                      aria-expanded={favoriteMenu?.favoriteId === favorite.id}
+                      aria-haspopup="menu"
+                      aria-label={`Actions for ${favorite.name}`}
+                      className="small-action"
+                      data-favorite-menu-trigger
+                      onClick={(event) =>
+                        toggleFavoriteMenu(favorite.id, event.currentTarget)
+                      }
+                      type="button"
+                    >
+                      •••
+                    </button>
                   </div>
                 ))}
               </div>
             )}
           </div>
         </div>
+        {favoriteMenu && (() => {
+          const favorite = favorites.find(
+            (item) => item.id === favoriteMenu.favoriteId,
+          );
+          if (!favorite) return null;
+          return (
+            <div
+              className="favorite-menu-popup w-32 border border-ink/15 bg-paper p-1 shadow-lg"
+              data-favorite-menu-popup
+              role="menu"
+              style={{ left: favoriteMenu.left, top: favoriteMenu.top }}
+            >
+              <button
+                className="menu-action"
+                onClick={() => {
+                  renameFavorite(favorite);
+                  setFavoriteMenu(null);
+                }}
+                role="menuitem"
+                type="button"
+              >
+                Rename
+              </button>
+              <button
+                className="menu-action"
+                onClick={() => {
+                  updateFavorite(favorite);
+                  setFavoriteMenu(null);
+                }}
+                role="menuitem"
+                type="button"
+              >
+                Update
+              </button>
+              <button
+                className="menu-action text-red-700"
+                onClick={() => {
+                  deleteFavorite(favorite);
+                  setFavoriteMenu(null);
+                }}
+                role="menuitem"
+                type="button"
+              >
+                Delete
+              </button>
+            </div>
+          );
+        })()}
       </dialog>
 
       {toastMessage && (

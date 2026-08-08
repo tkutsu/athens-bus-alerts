@@ -71,6 +71,23 @@ function BusIcon() {
   );
 }
 
+function SuccessCheckIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="arrival-due-check"
+      fill="none"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="2.5"
+      viewBox="0 0 20 20"
+    >
+      <path d="m4 10 4 4 8-9" />
+    </svg>
+  );
+}
+
 function TurtleIcon() {
   return (
     <svg
@@ -442,6 +459,10 @@ export function ArrivalTimeline({
                     0,
                     Math.ceil(arrival.minutes - elapsedMinutes),
                   );
+                  const timingLabel =
+                    estimatedEta === 0
+                      ? "due now"
+                      : `${estimatedEta} minutes away`;
                   const lineName = formatTransitName(arrival.lineId);
                   const uncertain =
                     arrival.confidence === "stale" ||
@@ -472,7 +493,7 @@ export function ArrivalTimeline({
                       <button
                         aria-label={`${
                           selected ? "Disable" : "Enable"
-                        } tracking for line ${lineName}, ${estimatedEta} minutes away${
+                        } tracking for line ${lineName}, ${timingLabel}${
                           uncertain
                             ? ", arrival is unconfirmed"
                             : slipping
@@ -516,13 +537,22 @@ export function ArrivalTimeline({
                           </span>
                         )}
                       </button>
-                      <span className="arrival-bus-eta" aria-hidden="true">
-                        {estimatedEta === 0 ? "NOW" : `${estimatedEta}m`}
+                      <span
+                        className={`arrival-bus-eta ${
+                          estimatedEta === 0 ? "arrival-bus-eta-due" : ""
+                        }`}
+                        aria-hidden="true"
+                      >
+                        {estimatedEta === 0 ? (
+                          <SuccessCheckIcon />
+                        ) : (
+                          `${estimatedEta}m`
+                        )}
                       </span>
                       <button
                         aria-label={`${
                           selected ? "Disable" : "Enable"
-                        } notifications for line ${lineName}, ${estimatedEta} minutes away`}
+                        } notifications for line ${lineName}, ${timingLabel}`}
                         aria-pressed={selected}
                         className={`arrival-bus ${
                           selected ? "arrival-bus-selected" : ""
