@@ -123,7 +123,7 @@ export function StopCombobox({
 
       {isOpen && (
         <div
-          className="absolute right-0 bottom-full left-0 z-[600] mb-1 max-h-[min(18rem,45dvh)] overflow-y-auto border border-ink/20 bg-paper shadow-lg"
+          className="absolute right-0 bottom-full left-0 z-[600] max-h-[min(18rem,45dvh)] overflow-y-auto border border-ink/20 bg-paper shadow-lg"
           id={listId}
           role="listbox"
         >
