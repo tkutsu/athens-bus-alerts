@@ -15,7 +15,7 @@ import {
   type CandidateArrival,
 } from "@/lib/alerts";
 import { isAbortError } from "@/lib/client-api";
-import { haversineMeters } from "@/lib/distance";
+import { formatDistance, haversineMeters } from "@/lib/distance";
 import {
   clearStoredState,
   createSubscription,
@@ -36,7 +36,6 @@ import type {
 import { findClosestStops, searchStopNames } from "@/lib/stop-catalog";
 import { useArrivalPolling } from "@/hooks/use-arrival-polling";
 import { useStopCatalog } from "@/hooks/use-stop-catalog";
-import { useRouteDetails } from "@/hooks/use-route-details";
 import { StopCombobox } from "@/components/stop-combobox";
 import { StopMap } from "@/components/stop-map";
 import {
@@ -244,12 +243,6 @@ function sortFavorites(favorites: readonly Favorite[]): Favorite[] {
   );
 }
 
-function distanceLabel(distanceMeters: number): string {
-  return distanceMeters < 1_000
-    ? `${Math.round(distanceMeters)} m away`
-    : `${(distanceMeters / 1_000).toFixed(1)} km away`;
-}
-
 export function TickerApp() {
   const [hydrated, setHydrated] = useState(false);
   const [coordinates, setCoordinates] = useState<Coordinates | null>(null);
@@ -348,7 +341,6 @@ export function TickerApp() {
     [catalogStops, coordinates, deferredSearchQuery],
   );
   const isSearching = searchQuery !== deferredSearchQuery;
-  const { details: routeDetails } = useRouteDetails(selectedRouteCodes);
 
   /** Applies a fresh device position and keeps selected-stop distance in sync. */
   const applyPosition = useCallback(
@@ -565,21 +557,28 @@ export function TickerApp() {
     };
   }, [favoriteMenu]);
 
-  const [confidenceArrivals, setConfidenceArrivals] = useState<
-    ReturnType<typeof updateVehicleConfidence>["arrivals"]
-  >([]);
+  const [confidenceSnapshot, setConfidenceSnapshot] = useState<{
+    arrivals: ReturnType<typeof updateVehicleConfidence>["arrivals"];
+    observedAt: string;
+  } | null>(null);
   const [confidenceClock, setConfidenceClock] = useState(() => Date.now());
 
+  const hasArrivalData = arrivalData !== null;
   useEffect(() => {
+    if (!hasArrivalData) return;
     const interval = window.setInterval(
       () => setConfidenceClock(Date.now()),
       30_000,
     );
     return () => window.clearInterval(interval);
-  }, []);
+  }, [hasArrivalData]);
 
   useEffect(() => {
     if (!arrivalData) return;
+    // The macrotask deferral is load-bearing: the timeline must render the new
+    // snapshot's observedAt against the previous arrivals before positions
+    // move, or the ETA-correction animation classes never apply (covered by
+    // the "accelerates and brakes" e2e test).
     const timeout = window.setTimeout(() => {
       const sameStop = confidenceStopCodeRef.current === selectedStop?.code;
       const update = updateVehicleConfidence(
@@ -590,7 +589,10 @@ export function TickerApp() {
       );
       confidenceStopCodeRef.current = selectedStop?.code ?? null;
       confidenceRecordsRef.current = update.records;
-      setConfidenceArrivals(update.arrivals);
+      setConfidenceSnapshot({
+        arrivals: update.arrivals,
+        observedAt: arrivalData.observedAt,
+      });
     }, 0);
     return () => window.clearTimeout(timeout);
   }, [arrivalData, confidenceClock, selectedStop?.code]);
@@ -599,7 +601,7 @@ export function TickerApp() {
     const routesByCode = new Map(
       routes.map((route) => [route.routeCode, route]),
     );
-    return confidenceArrivals.flatMap((arrival) => {
+    return (confidenceSnapshot?.arrivals ?? []).flatMap((arrival) => {
       const route = routesByCode.get(arrival.routeCode);
       return route
         ? [
@@ -613,24 +615,23 @@ export function TickerApp() {
           ]
         : [];
     });
-  }, [confidenceArrivals, routes]);
+  }, [confidenceSnapshot, routes]);
 
-  const candidates = useMemo<CandidateArrival[]>(
-    () =>
-      timelineArrivals
-        .filter((arrival) => arrival.confidence !== "unconfirmed")
-        .map((arrival) => ({
-          lineId: arrival.lineId,
-          routeCode: arrival.routeCode,
-          vehicleKey: arrival.vehicleKey,
-          minutes: arrival.minutes,
-          walkSeconds:
-            selectedStop && isUsableLocation(userLocation)
-              ? estimateWalkSeconds(userLocation, selectedStop)
-              : undefined,
-        })),
-    [selectedStop, timelineArrivals, userLocation],
-  );
+  const candidates = useMemo<CandidateArrival[]>(() => {
+    const walkSeconds =
+      selectedStop && isUsableLocation(userLocation)
+        ? estimateWalkSeconds(userLocation, selectedStop)
+        : undefined;
+    return timelineArrivals
+      .filter((arrival) => arrival.confidence !== "unconfirmed")
+      .map((arrival) => ({
+        lineId: arrival.lineId,
+        routeCode: arrival.routeCode,
+        vehicleKey: arrival.vehicleKey,
+        minutes: arrival.minutes,
+        walkSeconds,
+      }));
+  }, [selectedStop, timelineArrivals, userLocation]);
 
   const sendAlerts = useCallback(
     async (events: readonly AlertEvent[]) => {
@@ -722,12 +723,15 @@ export function TickerApp() {
     [sendAlerts, updateSubscriptions],
   );
 
+  // One evaluation per OASA snapshot, after confidence classification, so
+  // alerts see the current snapshot's candidates rather than the previous one.
+  const evaluatedSnapshotRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!arrivalData) return;
-    processSubscriptions(candidates, new Date(arrivalData.observedAt));
-    // One evaluation per OASA snapshot; subscription updates must not replay it.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [arrivalData?.observedAt]);
+    if (!confidenceSnapshot) return;
+    if (evaluatedSnapshotRef.current === confidenceSnapshot.observedAt) return;
+    evaluatedSnapshotRef.current = confidenceSnapshot.observedAt;
+    processSubscriptions(candidates, new Date(confidenceSnapshot.observedAt));
+  }, [candidates, confidenceSnapshot, processSubscriptions]);
 
   useEffect(() => {
     const nextPredicted = subscriptions
@@ -778,14 +782,12 @@ export function TickerApp() {
       return;
     }
     if (!(await ensureNotificationPermission())) return;
-    let detail: RouteDetails | undefined = routeDetails.get(routeCode);
-    if (!detail) {
-      try {
-        const response = await fetch(`/api/routes/${routeCode}`);
-        if (response.ok) detail = (await response.json()) as RouteDetails;
-      } catch {
-        // Selection can still work when optional direction metadata is unavailable.
-      }
+    let detail: RouteDetails | undefined;
+    try {
+      const response = await fetch(`/api/routes/${routeCode}`);
+      if (response.ok) detail = (await response.json()) as RouteDetails;
+    } catch {
+      // Selection can still work when optional direction metadata is unavailable.
     }
     if (
       detail &&
@@ -1101,7 +1103,7 @@ export function TickerApp() {
                 <span className="mt-0.5 block truncate text-xs text-ink/50">
                   {selectedStop.street
                     ? formatTransitName(selectedStop.street)
-                    : distanceLabel(selectedStop.distanceMeters)}
+                    : `${formatDistance(selectedStop.distanceMeters)} away`}
                 </span>
               )}
             </span>
