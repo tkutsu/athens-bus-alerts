@@ -20,12 +20,6 @@ export const arrivalSchema = z.object({
   btime2: z.string(),
 });
 
-export const routeDetailPointSchema = z.object({
-  routed_x: z.string(),
-  routed_y: z.string(),
-  routed_order: z.string(),
-});
-
 export const routeStopSchema = z.object({
   StopCode: z.string(),
   StopID: z.string().optional(),
@@ -40,8 +34,9 @@ export const routeStopSchema = z.object({
   StopAmea: nullableText,
 });
 
+// The upstream payload also carries a `details` polyline; nothing renders route
+// geometry, so it is left unparsed and stripped here.
 export const routeDetailsResponseSchema = z.object({
-  details: z.array(routeDetailPointSchema),
   stops: z.array(routeStopSchema),
 });
 

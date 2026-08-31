@@ -210,7 +210,6 @@ export function StopMap({
         .on("click", () => selectStopRef.current(stop))
         .addTo(markers);
     }
-    userMarkerRef.current?.setZIndexOffset(1000);
   }, [selectedStop?.code, visibleStops]);
 
   /** Updates the device location marker. */

@@ -101,7 +101,7 @@ export function getArrivalsForStop(stopCode: string) {
   );
 }
 
-/** Gets an ordered route shape and its stops. */
+/** Gets the ordered stops for one route direction. */
 export function getRouteDetails(routeCode: string) {
   return requestOasa(
     "webGetRoutesDetailsAndStops",

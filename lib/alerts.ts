@@ -23,6 +23,8 @@ export interface SubscriptionEvaluation {
 export const RECENT_VEHICLE_TTL_MS = 15 * 60_000;
 export const MAX_RECENT_VEHICLES = 20;
 export const STALE_PREDICTION_GRACE_MS = 2 * 60_000;
+// Safety buffer so "leave now" fires before the walk becomes tight.
+const LEAVE_SAFETY_SECONDS = 90;
 
 function predictedZeroAt(minutes: number, now: Date): string {
   return new Date(now.getTime() + minutes * 60_000).toISOString();
@@ -35,7 +37,10 @@ function predictedLeaveAt(
   if (arrival.walkSeconds === undefined) return null;
   return new Date(
     now.getTime() +
-      Math.max(0, arrival.minutes * 60 - arrival.walkSeconds - 90) * 1_000,
+      Math.max(
+        0,
+        arrival.minutes * 60 - arrival.walkSeconds - LEAVE_SAFETY_SECONDS,
+      ) * 1_000,
   ).toISOString();
 }
 

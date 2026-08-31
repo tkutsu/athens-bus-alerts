@@ -1,10 +1,10 @@
 import { haversineMeters } from "@/lib/distance";
 import type { Coordinates, UserLocation } from "@/lib/types";
 
-export const WALK_DETOUR_FACTOR = 1.3;
-export const WALK_SPEED_METERS_PER_SECOND = 1.25;
-export const MAX_LOCATION_AGE_MS = 120_000;
-export const MAX_LOCATION_ACCURACY_METERS = 75;
+const WALK_DETOUR_FACTOR = 1.3;
+const WALK_SPEED_METERS_PER_SECOND = 1.25;
+const MAX_LOCATION_AGE_MS = 120_000;
+const MAX_LOCATION_ACCURACY_METERS = 75;
 
 /** Rejects old or imprecise positions before calculating walking alerts. */
 export function isUsableLocation(

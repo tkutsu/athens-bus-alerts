@@ -34,17 +34,12 @@ export interface RouteStop extends Coordinates {
   order: number;
 }
 
-export interface RouteShapePoint extends Coordinates {
-  order: number;
-}
-
 export interface RouteDetails {
   routeCode: string;
   origin: string;
   destination: string;
   isCircular: boolean;
   stops: RouteStop[];
-  shape: RouteShapePoint[];
 }
 
 export interface UserLocation extends Coordinates {

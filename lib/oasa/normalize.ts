@@ -71,7 +71,7 @@ function finiteNumber(value: string): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-/** Normalizes ordered route geometry and stops. */
+/** Normalizes the ordered stops for one route direction. */
 export function normalizeRouteDetails(
   routeCode: string,
   value: OasaRouteDetails,
@@ -92,16 +92,6 @@ export function normalizeRouteDetails(
       }];
     })
     .sort((a, b) => a.order - b.order);
-  const shape = value.details
-    .flatMap((point) => {
-      const latitude = finiteNumber(point.routed_y);
-      const longitude = finiteNumber(point.routed_x);
-      const order = finiteNumber(point.routed_order);
-      return latitude === null || longitude === null || order === null
-        ? []
-        : [{ latitude, longitude, order }];
-    })
-    .sort((a, b) => a.order - b.order);
   const first = stops[0];
   const last = stops.at(-1);
 
@@ -111,6 +101,5 @@ export function normalizeRouteDetails(
     destination: last?.name ?? "Unknown",
     isCircular: Boolean(first && last && first.code === last.code),
     stops,
-    shape,
   };
 }
