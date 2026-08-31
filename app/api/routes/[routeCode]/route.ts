@@ -7,7 +7,7 @@ interface RouteContext {
   params: Promise<{ routeCode: string }>;
 }
 
-/** Returns cacheable ordered stops and geometry for one route direction. */
+/** Returns cacheable ordered stops for one route direction. */
 export async function GET(_request: Request, context: RouteContext) {
   const { routeCode } = await context.params;
   if (!isRouteCode(routeCode)) {

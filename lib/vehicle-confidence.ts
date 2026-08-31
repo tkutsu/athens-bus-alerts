@@ -82,6 +82,8 @@ export function updateVehicleConfidence(
     });
   }
 
+  // A vehicle absent from the snapshot survives one missed poll (shown as
+  // "unconfirmed") and at most 120s, whichever comes first.
   for (const [key, old] of previous) {
     if (current.has(key) || old.arrival.minutes <= 0) continue;
     const missingSnapshots =
