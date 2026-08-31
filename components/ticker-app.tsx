@@ -1249,7 +1249,7 @@ export function TickerApp() {
             </form>
           )}
 
-          <div className="favorites-list max-h-[55vh] overflow-y-auto">
+          <div className="favorites-list max-h-[55vh] overflow-x-hidden overflow-y-auto">
             {favorites.length === 0 ? (
               <div className="py-8 text-center text-sm text-ink/45">
                 <p>No favorites saved yet.</p>
