@@ -62,6 +62,31 @@ async function mockStopData(
       },
     });
   });
+  // toggleRoute fetches route details on every enable; without this mock the
+  // request would fall through to the real OASA upstream and race the test.
+  await page.route("**/api/routes/*", async (route) => {
+    const routeCode =
+      new URL(route.request().url()).pathname.split("/").at(-1) ?? "";
+    await route.fulfill({
+      json: {
+        routeCode,
+        origin: "HSAP N. FALHROY",
+        destination: "TERMA",
+        isCircular: false,
+        stops: [
+          { ...STOP, order: 1 },
+          {
+            code: "400076",
+            name: "TERMA",
+            street: null,
+            latitude: 37.9451,
+            longitude: 23.668,
+            order: 2,
+          },
+        ],
+      },
+    });
+  });
   await page.route("**/api/stops/400075/arrivals", async (route) => {
     arrivalRequestCount += 1;
     const arrivals =
@@ -822,7 +847,7 @@ test("keeps a multi-bus cutoff stack above the rail ending", async ({ page }) =>
   ).toHaveCSS("border-width", "2px");
 });
 
-test("saves a multi-line favorite with v4 storage", async ({ page }) => {
+test("saves a multi-line favorite to v5 storage", async ({ page }) => {
   await installNotificationMock(page);
   await mockStopData(page);
   await page.goto("/");
@@ -850,12 +875,14 @@ test("saves a multi-line favorite with v4 storage", async ({ page }) => {
   await expect
     .poll(() =>
       page.evaluate(() => {
-        const raw = window.localStorage.getItem("athens-bus-ticker:v4");
+        const raw = window.localStorage.getItem("athens-bus-ticker:v5");
         if (!raw) return null;
         const state = JSON.parse(raw);
         return {
           version: state.version,
-          lineIds: state.favorites[0]?.lineIds,
+          lineIds: state.favorites[0]?.routes.map(
+            (item: { lineId: string }) => item.lineId,
+          ),
           subscriptions: state.subscriptions.map(
             (item: { lineId: string }) => item.lineId,
           ),
@@ -863,7 +890,7 @@ test("saves a multi-line favorite with v4 storage", async ({ page }) => {
       }),
     )
     .toEqual({
-      version: 4,
+      version: 5,
       lineIds: ["218", "500"],
       subscriptions: ["218", "500"],
     });
@@ -960,15 +987,18 @@ test("promotes the next same-code bus after due-now", async ({ page }) => {
   ]);
   await page.addInitScript(() => {
     window.localStorage.setItem(
-      "athens-bus-ticker:v4",
+      "athens-bus-ticker:v5",
       JSON.stringify({
-        version: 4,
+        version: 5,
         selectedStop: { code: "400075", name: "HSAP N. FALHROY" },
         subscriptions: [
           {
             lineId: "218",
+            routeCode: null,
             trackedVehicleKey: null,
+            firedLeaveNow: false,
             firedOneMinute: false,
+            predictedLeaveAt: null,
             predictedZeroAt: null,
             lastObservedMinutes: null,
             recentVehicles: [],
@@ -989,7 +1019,7 @@ test("promotes the next same-code bus after due-now", async ({ page }) => {
     .poll(() =>
       page.evaluate(() => {
         const state = JSON.parse(
-          window.localStorage.getItem("athens-bus-ticker:v4") ?? "null",
+          window.localStorage.getItem("athens-bus-ticker:v5") ?? "null",
         );
         const subscription = state?.subscriptions?.[0];
         return subscription
