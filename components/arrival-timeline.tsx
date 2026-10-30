@@ -9,6 +9,7 @@ import {
   type CSSProperties,
 } from "react";
 import { formatTransitName } from "@/lib/display";
+import { Icon } from "@/components/icon";
 import type { VehicleConfidence } from "@/lib/vehicle-confidence";
 
 export interface TimelineArrival {
@@ -53,21 +54,7 @@ export interface ArrivalEntranceTiming {
 }
 
 function BusIcon() {
-  return (
-    <svg
-      className="arrival-timeline-bus-icon"
-      fill="none"
-      stroke="currentColor"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth="1.8"
-      viewBox="0 0 24 24"
-    >
-      <rect x="4" y="3" width="16" height="16" rx="2" />
-      <path d="M8 6v6m8-6v6M6 17h12M7 21v-2m10 2v-2" />
-      <path d="M8 15h.01M16 15h.01" />
-    </svg>
-  );
+  return <Icon name="bus" className="arrival-timeline-bus-icon" />;
 }
 
 function SuccessCheckIcon() {
@@ -321,16 +308,29 @@ export function ArrivalTimeline({
       grouped.set(bucket, [...(grouped.get(bucket) ?? []), arrival]);
     }
     return [...grouped.entries()]
-      .map(([minutes, items]) => ({
-        minutes,
-        items: items.sort(
+      .map(([minutes, items]) => {
+        items.sort(
           (a, b) =>
             a.lineId.localeCompare(b.lineId, "en", { numeric: true }) ||
             a.vehicleKey.localeCompare(b.vehicleKey),
-        ),
-      }))
+        );
+        return {
+          minutes,
+          items,
+          orderedItems: [...items].sort(
+            (a, b) =>
+              a.minutes - b.minutes ||
+              Number(selectedRoutes.has(b.routeCode)) - Number(selectedRoutes.has(a.routeCode)) ||
+              a.lineId.localeCompare(b.lineId, "en", { numeric: true }) ||
+              a.vehicleKey.localeCompare(b.vehicleKey),
+          ),
+        };
+      })
       .sort((a, b) => b.minutes - a.minutes);
-  }, [arrivals]);
+  }, [arrivals, selectedRoutes]);
+  const entranceTimings = useMemo(() => new Map(
+    arrivals.map((arrival) => [arrival.vehicleKey, arrivalEntranceTiming(arrival.vehicleKey)]),
+  ), [arrivals]);
 
   return (
     <section
@@ -365,14 +365,6 @@ export function ArrivalTimeline({
             const style = {
               "--timeline-position": `${position}%`,
             } as CSSProperties;
-            const orderedItems = [...group.items].sort(
-              (a, b) =>
-                a.minutes - b.minutes ||
-                Number(selectedRoutes.has(b.routeCode)) -
-                  Number(selectedRoutes.has(a.routeCode)) ||
-                a.lineId.localeCompare(b.lineId, "en", { numeric: true }) ||
-                a.vehicleKey.localeCompare(b.vehicleKey),
-            );
             const correctionActive = !isUnavailable && observedAt !== settledObservedAt;
             const movingBackward =
               !atCutoff &&
@@ -435,7 +427,7 @@ export function ArrivalTimeline({
                   .join("-")}
                 style={groupStyle}
               >
-                {orderedItems.map((arrival) => {
+                {group.orderedItems.map((arrival) => {
                   const selected = selectedRoutes.has(arrival.routeCode);
                   const muted = selectedRoutes.size > 0 && !selected;
                   const flippedBack =
@@ -456,9 +448,7 @@ export function ArrivalTimeline({
                     isUnavailable || arrival.confidence === "stale" ||
                     arrival.confidence === "unconfirmed";
                   const slipping = !uncertain && arrival.confidence === "slipping";
-                  const entranceTiming = arrivalEntranceTiming(
-                    arrival.vehicleKey,
-                  );
+                  const entranceTiming = entranceTimings.get(arrival.vehicleKey)!;
                   // Pass each stable schedule to CSS without changing row geometry.
                   const rowStyle = {
                     "--arrival-enter-delay": `${entranceTiming.delayMs}ms`,

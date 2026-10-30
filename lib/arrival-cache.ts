@@ -98,7 +98,12 @@ export function writeCachedArrivals(
 
 export function clearCachedArrivals(): void {
   if (typeof window !== "undefined") {
-    window.localStorage.removeItem(ARRIVAL_CACHE_KEY);
-    window.localStorage.removeItem(LEGACY_ARRIVAL_CACHE_KEY);
+    for (const key of [ARRIVAL_CACHE_KEY, LEGACY_ARRIVAL_CACHE_KEY]) {
+      try {
+        window.localStorage.removeItem(key);
+      } catch {
+        // Clearing active tracking must still work when storage is unavailable.
+      }
+    }
   }
 }

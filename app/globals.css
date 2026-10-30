@@ -67,6 +67,89 @@ body {
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.82' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='.0075'/%3E%3C/svg%3E");
 }
 
+.startup-screen {
+  position: fixed;
+  z-index: 100;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px)
+    env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+  color: #fff;
+  background: #e5562f;
+}
+
+.startup-screen-bus {
+  width: 120px;
+  height: 120px;
+  stroke-width: 2;
+  transform-origin: 50% 75%;
+}
+
+.startup-screen-exiting .startup-screen-bus {
+  animation:
+    startup-bus-drive 600ms cubic-bezier(0.4, 0, 0.7, 1) both,
+    startup-bus-rumble 600ms ease-in-out both;
+}
+
+.startup-screen-exiting {
+  pointer-events: none;
+  animation: startup-screen-out 220ms ease-out 400ms forwards;
+}
+
+@keyframes startup-bus-drive {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(100px);
+  }
+}
+
+@keyframes startup-screen-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes startup-bus-rumble {
+  0%, 100% {
+    translate: 0 0;
+    rotate: 0deg;
+  }
+  15% {
+    translate: 0 -2px;
+    rotate: -1.8deg;
+  }
+  30% {
+    translate: 0 1px;
+    rotate: 1.4deg;
+  }
+  45% {
+    translate: 0 -1.5px;
+    rotate: -1deg;
+  }
+  60% {
+    translate: 0 0.5px;
+    rotate: 0.7deg;
+  }
+  78% {
+    translate: 0 -0.5px;
+    rotate: -0.3deg;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .startup-screen-exiting .startup-screen-bus {
+    animation: none;
+  }
+
+  .startup-screen-exiting {
+    animation-duration: 1ms;
+    animation-delay: 0s;
+  }
+}
+
 button,
 input,
 select,

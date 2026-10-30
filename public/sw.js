@@ -1,4 +1,4 @@
-const CACHE_NAME = "athens-bus-ticker-v1";
+const CACHE_NAME = "athens-bus-ticker-v2";
 const OFFLINE_URL = "/offline.html";
 
 self.addEventListener("install", (event) => {
