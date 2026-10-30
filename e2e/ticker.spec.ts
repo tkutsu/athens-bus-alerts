@@ -251,6 +251,15 @@ test("grays and freezes last-known arrivals and pauses predicted alerts during a
     range.selectNodeContents(label);
     const box = section.querySelector(".arrival-bus")!.getBoundingClientRect();
     const rail = section.querySelector(".arrival-timeline-rail-broken")!;
+    const stop = document.querySelector(".selected-stop-row")!;
+    const marker = stop.querySelector(".selected-stop-marker")!.getBoundingClientRect();
+    const connector = getComputedStyle(stop, "::after");
+    const stopStyle = getComputedStyle(stop);
+    const connectorTop = stop.getBoundingClientRect().top + parseFloat(stopStyle.borderTopWidth) + parseFloat(connector.top);
+    const connectorBottom = connectorTop + parseFloat(connector.height);
+    const railStyle = getComputedStyle(rail);
+    const backgroundHeights = railStyle.backgroundSize.split(",").map(size => parseFloat(size.trim().split(/\s+/)[1]));
+    const dashTop = parseFloat(railStyle.backgroundPositionY.split(",")[1]);
     const firstBusTop = Math.min(...Array.from(section.querySelectorAll(".arrival-timeline-bus-marker"),
       marker => marker.getBoundingClientRect().top));
     return {
@@ -262,6 +271,13 @@ test("grays and freezes last-known arrivals and pauses predicted alerts during a
       dotWidth: getComputedStyle(rail, "::after").width,
       dotHeight: getComputedStyle(rail, "::after").height,
       dotRadius: getComputedStyle(rail, "::after").borderRadius,
+      stopConnectorGap: connectorTop - marker.bottom,
+      railConnectorGap: rail.getBoundingClientRect().top - connectorBottom,
+      connectorTransform: connector.transform,
+      lineDashGap: dashTop - backgroundHeights[0],
+      dashDotGap: parseFloat(getComputedStyle(rail, "::after").top) - dashTop - backgroundHeights[1],
+      busBoxesFullyRounded: Array.from(section.querySelectorAll(".arrival-bus")).every(bus =>
+        parseFloat(getComputedStyle(bus).borderRadius) >= bus.getBoundingClientRect().height / 2),
     };
   });
   expect(outageLayout.labelLeftOffset).toBeLessThan(1);
@@ -273,6 +289,12 @@ test("grays and freezes last-known arrivals and pauses predicted alerts during a
   expect(outageLayout.dotWidth).toBe("2px");
   expect(outageLayout.dotHeight).toBe("2px");
   expect(outageLayout.dotRadius).toBe("50%");
+  expect(Math.abs(outageLayout.stopConnectorGap)).toBeLessThanOrEqual(1);
+  expect(outageLayout.railConnectorGap).toBeLessThanOrEqual(0);
+  expect(outageLayout.connectorTransform).toBe("none");
+  expect(outageLayout.lineDashGap).toBe(2);
+  expect(outageLayout.dashDotGap).toBe(2);
+  expect(outageLayout.busBoxesFullyRounded).toBe(true);
   await page.screenshot({ path: testInfo.outputPath("unavailable-light.png") });
   await page.getByRole("switch", { name: "Use dark mode" }).click();
   await page.setViewportSize({ width: 390, height: 844 });

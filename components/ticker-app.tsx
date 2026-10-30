@@ -1166,7 +1166,7 @@ export function TickerApp() {
             aria-expanded={pickerOpen}
             className={`selected-stop-row ${
               hasNoArrivals ? "selected-stop-row-no-arrivals" : ""
-            }`}
+            } ${arrivalsUnavailable ? "selected-stop-row-arrivals-unavailable" : ""}`}
             onClick={() => setPickerOpen((current) => !current)}
             type="button"
           >
