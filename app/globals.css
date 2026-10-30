@@ -408,6 +408,10 @@ textarea:disabled {
   display: none;
 }
 
+.selected-stop-row-arrivals-unavailable[aria-expanded="false"]::after {
+  animation: none;
+}
+
 .selected-stop-row:hover {
   border-color: rgb(var(--ink-rgb) / 0.55);
   background: rgb(var(--surface-rgb) / 0.5);
@@ -479,12 +483,12 @@ textarea:disabled {
   height: 2.5rem;
   background:
     linear-gradient(var(--signal), var(--signal)) top / 100% 1.25rem no-repeat,
-    linear-gradient(var(--signal), var(--signal)) left 0 top 1.5rem / 100% 0.25rem no-repeat;
+    linear-gradient(var(--signal), var(--signal)) left 0 top 1.375rem / 100% 0.25rem no-repeat;
 }
 
 .arrival-timeline-rail-broken::after {
   position: absolute;
-  top: 2rem;
+  top: 1.75rem;
   width: 2px;
   height: 2px;
   border-radius: 50%;
@@ -708,6 +712,7 @@ textarea:disabled {
   align-items: center;
   gap: 0.38rem;
   border: 1px solid rgb(var(--ink-rgb) / 0.25);
+  border-radius: 9999px;
   background: rgb(var(--surface-rgb) / 0.72);
   padding: 0.35rem 0.55rem;
   color: var(--ink);
@@ -769,7 +774,7 @@ textarea:disabled {
 
 .arrival-bus-code {
   position: relative;
-  top: 1.5px;
+  top: 0.5px;
 }
 
 .arrival-bus-eta {
