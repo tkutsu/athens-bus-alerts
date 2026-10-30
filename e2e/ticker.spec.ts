@@ -909,8 +909,8 @@ test("uses one progressive timeline with independent multi-line toggles", async 
       endpointTag.evaluate((element) => getComputedStyle(element).boxShadow),
     )
     .not.toBe(defaultTagShadow);
-  await expect(endpointTag).toHaveCSS("border-color", "rgb(229, 86, 47)");
-  await expect(endpointTag).toHaveCSS("border-width", "1px");
+  await expect(endpointTag).toHaveCSS("border-color", "rgb(244, 242, 236)");
+  await expect(endpointTag).toHaveCSS("border-width", "2px");
   const markerBox = await disable218
     .first()
     .locator("xpath=..")
@@ -930,7 +930,7 @@ test("uses one progressive timeline with independent multi-line toggles", async 
     "0s",
   );
   await expect(enable500.first()).toHaveCSS("opacity", "1");
-  await expect(enable500.first()).toHaveCSS("border-bottom-width", "1px");
+  await expect(enable500.first()).toHaveCSS("border-bottom-width", "2px");
   await expect(enable500.first()).toHaveCSS("border-bottom-style", "solid");
   expect(requests.arrivalRequestCount()).toBe(1);
 
@@ -1046,6 +1046,42 @@ test("uses one progressive timeline with independent multi-line toggles", async 
   await page.reload();
   await expect(page.getByLabel("Bus arrivals")).toBeVisible();
   expect(requests.arrivalRequestCount()).toBe(1);
+});
+
+test("outlines overlapping bus boxes like their circles in both themes", async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ colorScheme: "light" });
+  await page.clock.install();
+  await installNotificationMock(page);
+  await mockStopData(page, [
+    { routeCode: "2810", vehicleId: "218-a", minutes: 4 },
+    { routeCode: "2810", vehicleId: "218-b", minutes: 5 },
+  ]);
+  await page.addInitScript(({ key, stop, subscription }) => {
+    localStorage.setItem(key, JSON.stringify({
+      version: 5, selectedStop: stop, subscriptions: [subscription], favorites: [],
+    }));
+  }, { key: STORAGE_KEY, stop: STOP, subscription: createSubscription("218", "2810") });
+  await page.goto("/");
+  await expect(page.locator(".arrival-bus-selected")).toHaveCount(2);
+  await page.clock.runFor(1_100);
+
+  for (const theme of ["light", "dark"]) {
+    if (theme === "dark") {
+      await page.getByRole("switch", { name: "Use dark mode" }).click();
+      await page.clock.runFor(250);
+    }
+    const borders = await page.locator(".arrival-timeline-row").evaluateAll(rows => rows.map(row => {
+      const box = row.querySelector(".arrival-bus")!;
+      const boxStyle = getComputedStyle(box);
+      const circleStyle = getComputedStyle(row.querySelector(".arrival-timeline-marker-face-enabled")!);
+      return { boxBorder: boxStyle.border, circleBorder: circleStyle.border, top: box.getBoundingClientRect().top, bottom: box.getBoundingClientRect().bottom };
+    }));
+    for (const border of borders) expect(border.boxBorder).toBe(border.circleBorder);
+    const [upper, lower] = borders.sort((a, b) => a.top - b.top);
+    expect(upper.bottom).toBeGreaterThan(lower.top);
+    await page.screenshot({ path: testInfo.outputPath(`bus-box-borders-${theme}.png`) });
+  }
 });
 
 test("keeps a multi-bus cutoff stack above the rail ending", async ({ page }) => {

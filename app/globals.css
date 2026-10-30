@@ -794,7 +794,7 @@ textarea:disabled {
   min-height: 2.25rem;
   align-items: center;
   gap: 0.38rem;
-  border: 1px solid rgb(var(--ink-rgb) / 0.25);
+  border: 2px solid var(--paper);
   border-radius: 9999px;
   background: rgb(var(--surface-rgb) / 0.72);
   padding: 0.35rem 0.55rem;
@@ -803,7 +803,6 @@ textarea:disabled {
   transition:
     opacity 160ms ease,
     transform 160ms ease,
-    border-color 160ms ease,
     background-color 160ms ease,
     box-shadow 140ms ease;
 }
@@ -834,7 +833,6 @@ textarea:disabled {
 
 .arrival-bus-selected {
   z-index: 3;
-  border: 1px solid var(--signal);
   background: var(--signal);
   color: white;
   box-shadow: 0 5px 14px rgb(var(--signal-rgb) / 0.22);
@@ -842,7 +840,6 @@ textarea:disabled {
 }
 
 .arrival-bus-muted {
-  border-color: rgb(var(--ink-rgb) / 0.28);
   background: rgb(var(--surface-rgb) / 0.34);
   color: rgb(var(--ink-rgb) / 0.46);
   box-shadow: none;
