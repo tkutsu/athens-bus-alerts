@@ -38,12 +38,14 @@ import { useArrivalPolling } from "@/hooks/use-arrival-polling";
 import { useStopCatalog } from "@/hooks/use-stop-catalog";
 import { StopCombobox } from "@/components/stop-combobox";
 import { StopMap } from "@/components/stop-map";
+import { ArrivalWarning, ServiceWarning } from "@/components/service-warning";
 import {
   ArrivalTimeline,
   type TimelineArrival,
 } from "@/components/arrival-timeline";
 import {
   updateVehicleConfidence,
+  STALE_ARRIVAL_MS,
   type VehicleConfidenceRecord,
 } from "@/lib/vehicle-confidence";
 import { estimateWalkSeconds, isUsableLocation } from "@/lib/walking";
@@ -264,6 +266,13 @@ export function TickerApp() {
   const locationDeniedRef = useRef(false);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [stopError, setStopError] = useState<{
+    stop: Pick<StopSummary, "code" | "name"> & Partial<StopSummary>;
+    subscriptions?: LineSubscription[];
+    message: string;
+  } | null>(null);
+  const [directionWarning, setDirectionWarning] = useState<string | null>(null);
+  const [dismissedArrivalWarning, setDismissedArrivalWarning] = useState<string | null>(null);
   const [urgentMessage, setUrgentMessage] = useState<string | null>(null);
   const [isLocating, setIsLocating] = useState(false);
   const [isLoadingStop, setIsLoadingStop] = useState(false);
@@ -317,9 +326,12 @@ export function TickerApp() {
     data: arrivalData,
     error: arrivalError,
     isLoading: arrivalsLoading,
+    isOffline: arrivalsOffline,
+    retryAt: arrivalsRetryAt,
   } = useArrivalPolling(
-    pickerOpen ? null : (selectedStop?.code ?? null),
+    selectedStop?.code ?? null,
     selectedRouteCodes,
+    !pickerOpen,
   );
   const {
     stops: catalogStops,
@@ -452,6 +464,8 @@ export function TickerApp() {
         selectedStopRef.current = stop;
         setSelectedStop(stop);
         setRoutes(servingRoutes);
+        setStopError(null);
+        setDirectionWarning(null);
         updateSubscriptions(nextSubscriptions);
         setPickerOpen(false);
         return {
@@ -467,11 +481,13 @@ export function TickerApp() {
         ) {
           return null;
         }
-        setError(
-          loadError instanceof Error
+        setStopError({
+          stop: requestedStop,
+          subscriptions: requestedSubscriptions,
+          message: loadError instanceof Error
             ? loadError.message
             : "Could not load that stop.",
-        );
+        });
         return null;
       } finally {
         if (loadVersion === stopLoadVersionRef.current) {
@@ -558,10 +574,17 @@ export function TickerApp() {
   }, [favoriteMenu]);
 
   const [confidenceSnapshot, setConfidenceSnapshot] = useState<{
+    stopCode: string | null;
     arrivals: ReturnType<typeof updateVehicleConfidence>["arrivals"];
     observedAt: string;
   } | null>(null);
   const [confidenceClock, setConfidenceClock] = useState(() => Date.now());
+  const arrivalsUnavailable = Boolean(
+    arrivalError || arrivalsOffline ||
+    (arrivalData && confidenceClock - Date.parse(arrivalData.observedAt) > STALE_ARRIVAL_MS),
+  );
+  const canProcessAlerts = !arrivalsUnavailable && arrivalData !== null &&
+    confidenceSnapshot?.observedAt === arrivalData.observedAt;
 
   const hasArrivalData = arrivalData !== null;
   useEffect(() => {
@@ -590,6 +613,7 @@ export function TickerApp() {
       confidenceStopCodeRef.current = selectedStop?.code ?? null;
       confidenceRecordsRef.current = update.records;
       setConfidenceSnapshot({
+        stopCode: selectedStop?.code ?? null,
         arrivals: update.arrivals,
         observedAt: arrivalData.observedAt,
       });
@@ -598,6 +622,7 @@ export function TickerApp() {
   }, [arrivalData, confidenceClock, selectedStop?.code]);
 
   const timelineArrivals = useMemo<TimelineArrival[]>(() => {
+    if (!hasArrivalData || confidenceSnapshot?.stopCode !== selectedStop?.code) return [];
     const routesByCode = new Map(
       routes.map((route) => [route.routeCode, route]),
     );
@@ -615,7 +640,7 @@ export function TickerApp() {
           ]
         : [];
     });
-  }, [confidenceSnapshot, routes]);
+  }, [hasArrivalData, confidenceSnapshot, routes, selectedStop?.code]);
 
   const candidates = useMemo<CandidateArrival[]>(() => {
     const walkSeconds =
@@ -727,13 +752,27 @@ export function TickerApp() {
   // alerts see the current snapshot's candidates rather than the previous one.
   const evaluatedSnapshotRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!confidenceSnapshot) return;
+    if (!canProcessAlerts || !confidenceSnapshot) return;
     if (evaluatedSnapshotRef.current === confidenceSnapshot.observedAt) return;
     evaluatedSnapshotRef.current = confidenceSnapshot.observedAt;
     processSubscriptions(candidates, new Date(confidenceSnapshot.observedAt));
-  }, [candidates, confidenceSnapshot, processSubscriptions]);
+  }, [canProcessAlerts, candidates, confidenceSnapshot, processSubscriptions]);
+
+  /* eslint-disable react-hooks/set-state-in-effect -- invalidate predictions when the external arrivals service becomes unavailable */
+  useEffect(() => {
+    if (!arrivalsUnavailable) return;
+    // Old predictions must not fire as catch-up alerts after an outage.
+    updateSubscriptions((current) => current.map((subscription) => ({
+      ...subscription,
+      predictedLeaveAt: null,
+      predictedZeroAt: null,
+    })));
+    setUrgentMessage(null);
+  }, [arrivalsUnavailable, updateSubscriptions]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   useEffect(() => {
+    if (!canProcessAlerts) return;
     const nextPredicted = subscriptions
       .flatMap((subscription) => [
         subscription.firedLeaveNow ? null : subscription.predictedLeaveAt,
@@ -748,7 +787,7 @@ export function TickerApp() {
       Math.min(delay, 2_147_000_000),
     );
     return () => window.clearTimeout(timeout);
-  }, [processSubscriptions, subscriptions]);
+  }, [canProcessAlerts, processSubscriptions, subscriptions]);
 
   async function ensureNotificationPermission(): Promise<boolean> {
     if (!("Notification" in window)) {
@@ -784,11 +823,16 @@ export function TickerApp() {
     if (!(await ensureNotificationPermission())) return;
     let detail: RouteDetails | undefined;
     try {
-      const response = await fetch(`/api/routes/${routeCode}`);
+      const response = await fetch(`/api/routes/${routeCode}`, {
+        signal: AbortSignal.timeout(12_000),
+      });
       if (response.ok) detail = (await response.json()) as RouteDetails;
     } catch {
       // Selection can still work when optional direction metadata is unavailable.
     }
+    setDirectionWarning(detail
+      ? null
+      : `Line ${formatTransitName(lineId)}: direction details are unavailable.`);
     if (
       detail &&
       selectedStop &&
@@ -1037,6 +1081,8 @@ export function TickerApp() {
     selectedStopRef.current = null;
     setSelectedStop(null);
     setRoutes([]);
+    setStopError(null);
+    setDirectionWarning(null);
     updateSubscriptions([]);
     setFavorites([]);
     setFavoriteMenu(null);
@@ -1046,15 +1092,18 @@ export function TickerApp() {
   }
 
   const toastMessage =
-    error ?? catalogError ?? arrivalError ?? urgentMessage ?? status;
-  const toastIsError = Boolean(error || catalogError || arrivalError);
+    error ?? catalogError ?? urgentMessage ?? status;
+  const toastIsError = Boolean(error || catalogError);
   const toastIsUrgent = Boolean(!toastIsError && urgentMessage);
   const canSaveFavorite = selectedStop !== null && selectedLineIds.length > 0;
+  const arrivalWarningKey = `${selectedStop?.code}:${arrivalsRetryAt ?? arrivalData?.observedAt ?? "initial"}`;
+  const showArrivalWarning = selectedStop && !pickerOpen && arrivalsUnavailable && dismissedArrivalWarning !== arrivalWarningKey;
   const hasNoArrivals =
     selectedStop !== null &&
     arrivalData !== null &&
     !arrivalsLoading &&
     !isLoadingStop &&
+    !arrivalsUnavailable &&
     timelineArrivals.length === 0;
 
   return (
@@ -1073,6 +1122,33 @@ export function TickerApp() {
           <Icon name="star" className="size-4 shrink-0 -translate-y-px" />
         </button>
       </header>
+
+      {showArrivalWarning && (
+        <ArrivalWarning
+          error={arrivalError}
+          isOffline={arrivalsOffline}
+          isRetrying={arrivalsLoading}
+          retryAt={arrivalsRetryAt}
+          observedAt={arrivalData?.observedAt ?? null}
+          onDismiss={() => setDismissedArrivalWarning(arrivalWarningKey)}
+        />
+      )}
+
+      {stopError && (
+        <ServiceWarning
+          title={`Couldn't load lines for ${formatTransitName(stopError.stop.name)}`}
+          message={stopError.message}
+        >
+          <button
+            className="font-semibold underline"
+            disabled={isLoadingStop}
+            onClick={() => void loadStop(stopError.stop, stopError.subscriptions)}
+            type="button"
+          >
+            {isLoadingStop ? "Retrying..." : "Retry"}
+          </button>
+        </ServiceWarning>
+      )}
 
       <section
         aria-label={selectedStop ? undefined : "Choose a stop"}
@@ -1168,10 +1244,14 @@ export function TickerApp() {
         </div>
       </section>
 
+      {selectedStop && !pickerOpen && directionWarning && (
+        <p className="mb-3 text-xs text-ink/70" role="status">{directionWarning}</p>
+      )}
       {selectedStop && !pickerOpen ? (
         <ArrivalTimeline
           arrivals={timelineArrivals}
           isLoading={arrivalsLoading || isLoadingStop || arrivalData === null}
+          isUnavailable={arrivalsUnavailable}
           observedAt={arrivalData?.observedAt ?? null}
           onToggleRoute={(routeCode, lineId) =>
             void toggleRoute(routeCode, lineId)
@@ -1348,7 +1428,7 @@ export function TickerApp() {
         })()}
       </dialog>
 
-      {toastMessage && (
+      {toastMessage && !showArrivalWarning && (
         <Toast
           isError={toastIsError}
           isUrgent={toastIsUrgent}

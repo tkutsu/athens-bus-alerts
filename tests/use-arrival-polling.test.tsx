@@ -4,7 +4,7 @@ import {
   arrivalPollInterval,
   useArrivalPolling,
 } from "@/hooks/use-arrival-polling";
-import { ARRIVAL_CACHE_KEY } from "@/lib/arrival-cache";
+import { ARRIVAL_CACHE_KEY, writeCachedArrivals } from "@/lib/arrival-cache";
 
 function arrivalsResponse(minutes: number): Response {
   return new Response(
@@ -21,7 +21,7 @@ function arrivalsResponse(minutes: number): Response {
 
 function errorResponse(): Response {
   return new Response(
-    JSON.stringify({ error: { message: "OASA is unavailable" } }),
+    JSON.stringify({ error: { code: "OASA_UNAVAILABLE", message: "OASA is unavailable", retryable: true } }),
     {
       status: 502,
       headers: { "Content-Type": "application/json" },
@@ -190,7 +190,7 @@ describe("useArrivalPolling", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("retries every 40 seconds after errors and resets after success", async () => {
+  it("keeps errors visible, retries every 20 seconds, and resets after success", async () => {
     const fetchMock = vi.fn<typeof fetch>();
     fetchMock
       .mockResolvedValueOnce(errorResponse())
@@ -198,24 +198,29 @@ describe("useArrivalPolling", () => {
       .mockImplementation(() => Promise.resolve(arrivalsResponse(2)));
     vi.stubGlobal("fetch", fetchMock);
 
-    renderHook(() => useArrivalPolling("400075", ["2810"]));
+    const { result } = renderHook(() => useArrivalPolling("400075", ["2810"]));
     await act(async () => {});
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(39_999);
+      await vi.advanceTimersByTimeAsync(19_999);
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result.current.error?.message).toBe("OASA is unavailable");
+    expect(result.current.retryAt).toBe(Date.parse("2026-07-29T10:00:20Z"));
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1);
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.current.error?.message).toBe("OASA is unavailable");
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(40_000);
+      await vi.advanceTimersByTimeAsync(20_000);
     });
     expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(result.current.error).toBeNull();
+    expect(result.current.retryAt).toBeNull();
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(29_999);
@@ -226,5 +231,107 @@ describe("useArrivalPolling", () => {
       await vi.advanceTimersByTimeAsync(1);
     });
     expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("preserves the last snapshot and failure while the picker pauses polling", async () => {
+    const fetchMock = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(arrivalsResponse(8))
+      .mockImplementation(() => Promise.resolve(errorResponse()));
+    vi.stubGlobal("fetch", fetchMock);
+    const { result, rerender } = renderHook(
+      ({ enabled }) => useArrivalPolling("400075", ["2810"], enabled),
+      { initialProps: { enabled: true } },
+    );
+    await act(async () => {});
+    const snapshot = result.current.data;
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    expect(result.current.error).not.toBeNull();
+    expect(result.current.data).toBe(snapshot);
+    rerender({ enabled: false });
+    await act(async () => { await vi.advanceTimersByTimeAsync(45_000); });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.current.error).not.toBeNull();
+    rerender({ enabled: true });
+    await act(async () => {});
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(result.current.error).not.toBeNull();
+  });
+
+  it("waits 20 seconds after a failed request finishes and never overlaps retries", async () => {
+    let finish: (response: Response) => void = () => {};
+    const fetchMock = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(errorResponse())
+      .mockImplementationOnce(() => new Promise<Response>((resolve) => { finish = resolve; }))
+      .mockResolvedValue(errorResponse());
+    vi.stubGlobal("fetch", fetchMock);
+    const { result } = renderHook(() => useArrivalPolling("400075"));
+    await act(async () => {});
+    await act(async () => { await vi.advanceTimersByTimeAsync(20_000); });
+    expect(result.current.isLoading).toBe(true);
+    expect(result.current.error).not.toBeNull();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+      window.dispatchEvent(new Event("focus"));
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await act(async () => { finish(errorResponse()); });
+    expect(result.current.retryAt).toBe(Date.now() + 20_000);
+    await act(async () => { await vi.advanceTimersByTimeAsync(19_999); });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("only clears a failure for a valid response, including an empty result", async () => {
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(errorResponse())
+      .mockResolvedValueOnce(new Response(JSON.stringify({ arrivals: [], observedAt: "invalid" })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ arrivals: [], observedAt: new Date().toISOString() }))));
+    const { result } = renderHook(() => useArrivalPolling("400075"));
+    await act(async () => {});
+    await act(async () => { await vi.advanceTimersByTimeAsync(20_000); });
+    expect(result.current.error).not.toBeNull();
+    expect(result.current.data).toBeNull();
+    await act(async () => { await vi.advanceTimersByTimeAsync(20_000); });
+    expect(result.current.error).toBeNull();
+    expect(result.current.data?.arrivals).toEqual([]);
+  });
+
+  it("restores a known failure along with the cached retry schedule", async () => {
+    writeCachedArrivals("400075", {
+      arrivals: [{ routeCode: "2810", vehicleId: "cached", minutes: 8 }],
+      observedAt: new Date().toISOString(),
+    }, Date.now() + 20_000, true);
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(arrivalsResponse(8));
+    vi.stubGlobal("fetch", fetchMock);
+    const { result } = renderHook(() => useArrivalPolling("400075"));
+    await act(async () => {});
+    expect(result.current.error).not.toBeNull();
+    expect(result.current.data?.arrivals[0].vehicleId).toBe("cached");
+    expect(fetchMock).not.toHaveBeenCalled();
+    await act(async () => { await vi.advanceTimersByTimeAsync(20_000); });
+    expect(result.current.error).toBeNull();
+  });
+
+  it("keeps arrivals unavailable after going offline until a fresh response succeeds", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(() => Promise.resolve(arrivalsResponse(8)));
+    vi.stubGlobal("fetch", fetchMock);
+    const { result } = renderHook(() => useArrivalPolling("400075", ["2810"]));
+    await act(async () => {});
+    await act(async () => {
+      Object.defineProperty(navigator, "onLine", { configurable: true, value: false });
+      window.dispatchEvent(new Event("offline"));
+      await vi.advanceTimersByTimeAsync(31_000);
+    });
+    expect(result.current.isOffline).toBe(true);
+    expect(result.current.error).not.toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      Object.defineProperty(navigator, "onLine", { configurable: true, value: true });
+      window.dispatchEvent(new Event("online"));
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.current.error).toBeNull();
+    expect(result.current.isOffline).toBe(false);
   });
 });
