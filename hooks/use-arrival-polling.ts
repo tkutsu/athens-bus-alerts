@@ -2,21 +2,21 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  arrivalsPayloadSchema,
   readCachedArrivals,
   writeCachedArrivals,
   type ArrivalsPayload,
 } from "@/lib/arrival-cache";
-import { apiErrorMessage, isAbortError } from "@/lib/client-api";
+import { apiResponseError } from "@/lib/client-api";
 import type { Arrival } from "@/lib/types";
 
 const NEAR_POLL_INTERVAL_MS = 30_000;
 const IMMINENT_POLL_INTERVAL_MS = 20_000;
 const FAR_POLL_INTERVAL_MS = 60_000;
-const ERROR_POLL_INTERVAL_MS = 40_000;
+const ERROR_POLL_INTERVAL_MS = 20_000;
 const RESUME_COALESCE_MS = 5_000;
-const ERROR_DISMISS_MS = 30_000;
 
-/** Uses only selected routes to choose the next 30- or 60-second cadence. */
+/** Uses only selected routes to choose the next 20-, 30-, or 60-second cadence. */
 export function arrivalPollInterval(
   arrivals: readonly Arrival[],
   selectedRouteCodes: readonly string[],
@@ -40,10 +40,14 @@ export function arrivalPollInterval(
 export function useArrivalPolling(
   stopCode: string | null,
   selectedRouteCodes: readonly string[] = [],
+  enabled = true,
 ) {
   const [data, setData] = useState<ArrivalsPayload | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Error | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isOffline, setIsOffline] = useState(false);
+  const [retryAt, setRetryAt] = useState<number | null>(null);
+  const activeStopRef = useRef<string | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const controllerRef = useRef<AbortController | null>(null);
   const inFlightRef = useRef<Promise<void> | null>(null);
@@ -61,14 +65,14 @@ export function useArrivalPolling(
   const persistSchedule = useCallback(
     (at: number) => {
       if (stopCode && dataRef.current) {
-        writeCachedArrivals(stopCode, dataRef.current, at);
+        writeCachedArrivals(stopCode, dataRef.current, at, true);
       }
     },
     [stopCode],
   );
 
   const refresh = useCallback((minimumAgeMs = 0): Promise<void> => {
-    if (!stopCode || !navigator.onLine || document.hidden) {
+    if (!enabled || !stopCode || !navigator.onLine || document.hidden) {
       return Promise.resolve();
     }
     if (inFlightRef.current) return inFlightRef.current;
@@ -90,18 +94,17 @@ export function useArrivalPolling(
       try {
         const response = await fetch(`/api/stops/${stopCode}/arrivals`, {
           cache: "no-store",
-          signal: controller.signal,
+          signal: AbortSignal.any([controller.signal, AbortSignal.timeout(12_000)]),
         });
         if (!response.ok) {
-          throw new Error(
-            await apiErrorMessage(
-              response,
-              "Could not refresh live arrivals.",
-            ),
+          throw await apiResponseError(
+            response,
+            "Could not refresh live arrivals.",
           );
         }
 
-        const payload = (await response.json()) as ArrivalsPayload;
+        const payload = arrivalsPayloadSchema.parse(await response.json());
+        if (controller.signal.aborted) return;
         const interval = arrivalPollInterval(
           payload.arrivals,
           selectedRouteCodesRef.current,
@@ -112,17 +115,19 @@ export function useArrivalPolling(
         dataRef.current = payload;
         setData(payload);
         setError(null);
+        setRetryAt(null);
         writeCachedArrivals(stopCode, payload, nextPollAt);
       } catch (refreshError) {
-        if (!isAbortError(refreshError)) {
+        if (!controller.signal.aborted) {
           const retryAt = Date.now() + ERROR_POLL_INTERVAL_MS;
           retryNotBeforeRef.current = retryAt;
           nextPollAtRef.current = retryAt;
           persistSchedule(retryAt);
+          setRetryAt(retryAt);
           setError(
             refreshError instanceof Error
-              ? refreshError.message
-              : "Could not refresh live arrivals.",
+              ? refreshError
+              : new Error("Could not refresh live arrivals."),
           );
         }
       } finally {
@@ -137,11 +142,30 @@ export function useArrivalPolling(
     });
     inFlightRef.current = trackedRequest;
     return trackedRequest;
-  }, [persistSchedule, stopCode]);
+  }, [enabled, persistSchedule, stopCode]);
 
   /* eslint-disable react-hooks/set-state-in-effect -- restore the external arrival snapshot before scheduling */
   useEffect(() => {
-    setError(null);
+    const changingStop = activeStopRef.current !== stopCode;
+    activeStopRef.current = stopCode;
+    if (changingStop) {
+      setError(null);
+      setRetryAt(null);
+      lastRequestStartedAtRef.current = 0;
+      retryNotBeforeRef.current = 0;
+      const cached = stopCode ? readCachedArrivals(stopCode) : null;
+      if (cached?.unavailable) {
+        setError(new Error("Waiting for a fresh arrivals response."));
+        setRetryAt(new Date(cached.nextPollAt).getTime());
+      }
+      dataRef.current = cached?.data ?? null;
+      setData(cached?.data ?? null);
+      nextPollAtRef.current = cached
+        ? new Date(cached.nextPollAt).getTime()
+        : Date.now();
+    }
+    setIsOffline(!navigator.onLine);
+    setIsLoading(false);
     if (!stopCode) {
       dataRef.current = null;
       setData(null);
@@ -150,14 +174,9 @@ export function useArrivalPolling(
     }
 
     let cancelled = false;
-    lastRequestStartedAtRef.current = 0;
-    retryNotBeforeRef.current = 0;
-    const cached = readCachedArrivals(stopCode);
-    dataRef.current = cached?.data ?? null;
-    setData(cached?.data ?? null);
-    nextPollAtRef.current = cached
-      ? new Date(cached.nextPollAt).getTime()
-      : Date.now();
+    if (!navigator.onLine) {
+      setError(new Error("Waiting for a fresh arrivals response."));
+    }
 
     const schedule = () => {
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
@@ -170,19 +189,27 @@ export function useArrivalPolling(
         clearTimeout(timeoutRef.current);
         timeoutRef.current = null;
       }
-      if (document.hidden || !navigator.onLine) return;
+      if (!enabled || document.hidden || !navigator.onLine) return;
       await refresh(minimumAgeMs);
       if (!cancelled) schedule();
     };
 
-    if (nextPollAtRef.current > Date.now()) {
-      schedule();
-    } else {
-      void runAndSchedule();
+    if (enabled) {
+      if (nextPollAtRef.current > Date.now()) {
+        schedule();
+      } else {
+        void runAndSchedule();
+      }
     }
 
-    const resume = () => {
-      if (document.hidden || !navigator.onLine) {
+    const resume = (event: Event) => {
+      setIsOffline(!navigator.onLine);
+      if (!navigator.onLine) {
+        setError((current) => current ?? new Error("Waiting for a fresh arrivals response."));
+      } else if (event.type === "online") {
+        nextPollAtRef.current = Math.max(Date.now(), retryNotBeforeRef.current);
+      }
+      if (!enabled || document.hidden || !navigator.onLine) {
         if (timeoutRef.current) clearTimeout(timeoutRef.current);
         return;
       }
@@ -208,14 +235,8 @@ export function useArrivalPolling(
       window.removeEventListener("online", resume);
       window.removeEventListener("offline", resume);
     };
-  }, [refresh, stopCode]);
+  }, [enabled, refresh, stopCode]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
-  useEffect(() => {
-    if (!error) return;
-    const timeout = window.setTimeout(() => setError(null), ERROR_DISMISS_MS);
-    return () => window.clearTimeout(timeout);
-  }, [error]);
-
-  return { data, error, isLoading };
+  return { data, error, isLoading, isOffline, retryAt };
 }

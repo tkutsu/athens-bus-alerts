@@ -25,6 +25,7 @@ export interface TimelineArrival {
 interface ArrivalTimelineProps {
   arrivals: readonly TimelineArrival[];
   isLoading: boolean;
+  isUnavailable?: boolean;
   observedAt: string | null;
   onToggleRoute: (routeCode: string, lineId: string) => void;
   selectedRouteCodes: readonly string[];
@@ -221,6 +222,7 @@ export function forwardJumpVehicleKeys(
 export function ArrivalTimeline({
   arrivals,
   isLoading,
+  isUnavailable = false,
   observedAt,
   onToggleRoute,
   selectedRouteCodes,
@@ -240,9 +242,10 @@ export function ArrivalTimeline({
   );
 
   useEffect(() => {
+    if (isUnavailable) return;
     const interval = window.setInterval(() => setNow(Date.now()), 250);
     return () => window.clearInterval(interval);
-  }, []);
+  }, [isUnavailable]);
 
   useEffect(() => {
     // Scope entrance animations to the line-mode reveal so corrections cannot replay them.
@@ -310,7 +313,7 @@ export function ArrivalTimeline({
   }, [arrivals, observedAt]);
 
   const observedAtMs = observedAt ? new Date(observedAt).getTime() : now;
-  const elapsedMinutes = Math.max(0, (now - observedAtMs) / 60_000);
+  const elapsedMinutes = isUnavailable ? 0 : Math.max(0, (now - observedAtMs) / 60_000);
   const groups = useMemo(() => {
     const grouped = new Map<number, TimelineArrival[]>();
     for (const arrival of arrivals) {
@@ -334,9 +337,15 @@ export function ArrivalTimeline({
       aria-label="Bus arrivals"
       className={`arrival-timeline-section ${
         entranceActive ? "arrival-timeline-section-entering" : ""
-      }`}
+      } ${isUnavailable ? "arrival-timeline-section-unavailable" : ""}`}
     >
-      {isLoading && arrivals.length === 0 ? (
+      {isUnavailable && <div aria-hidden="true" className="arrival-timeline-rail-broken" />}
+      {isUnavailable && arrivals.length > 0 && (
+        <p className="arrival-last-known text-xs font-semibold text-ink/70">Last known arrivals</p>
+      )}
+      {isUnavailable && arrivals.length === 0 ? (
+        <p className="arrival-timeline-empty">Couldn&apos;t load live arrivals.</p>
+      ) : isLoading && arrivals.length === 0 ? (
         <p className="empty-copy mt-5">Loading live arrivals...</p>
       ) : arrivals.length === 0 ? (
         <p className="arrival-timeline-empty">no bus found :(</p>
@@ -351,7 +360,7 @@ export function ArrivalTimeline({
               : timelinePositionPercent(
                   group.minutes,
                   observedAtMs,
-                  now,
+                  isUnavailable ? observedAtMs : now,
                 );
             const style = {
               "--timeline-position": `${position}%`,
@@ -364,7 +373,7 @@ export function ArrivalTimeline({
                 a.lineId.localeCompare(b.lineId, "en", { numeric: true }) ||
                 a.vehicleKey.localeCompare(b.vehicleKey),
             );
-            const correctionActive = observedAt !== settledObservedAt;
+            const correctionActive = !isUnavailable && observedAt !== settledObservedAt;
             const movingBackward =
               !atCutoff &&
               correctionActive &&
@@ -430,22 +439,23 @@ export function ArrivalTimeline({
                   const selected = selectedRoutes.has(arrival.routeCode);
                   const muted = selectedRoutes.size > 0 && !selected;
                   const flippedBack =
-                    !atCutoff &&
+                    !isUnavailable && !atCutoff &&
                     correctionActive &&
                     corrections.backward.has(arrival.vehicleKey);
                   const estimatedEta = Math.max(
                     0,
                     Math.ceil(arrival.minutes - elapsedMinutes),
                   );
-                  const timingLabel =
-                    estimatedEta === 0
+                  const timingLabel = isUnavailable
+                    ? `last reported ${arrival.minutes} minutes away`
+                    : estimatedEta === 0
                       ? "due now"
                       : `${estimatedEta} minutes away`;
                   const lineName = formatTransitName(arrival.lineId);
                   const uncertain =
-                    arrival.confidence === "stale" ||
+                    isUnavailable || arrival.confidence === "stale" ||
                     arrival.confidence === "unconfirmed";
-                  const slipping = arrival.confidence === "slipping";
+                  const slipping = !uncertain && arrival.confidence === "slipping";
                   const entranceTiming = arrivalEntranceTiming(
                     arrival.vehicleKey,
                   );
@@ -514,11 +524,11 @@ export function ArrivalTimeline({
                       </button>
                       <span
                         className={`arrival-bus-eta ${
-                          estimatedEta === 0 ? "arrival-bus-eta-due" : ""
+                          !isUnavailable && estimatedEta === 0 ? "arrival-bus-eta-due" : ""
                         }`}
                         aria-hidden="true"
                       >
-                        {estimatedEta === 0 ? (
+                        {!isUnavailable && estimatedEta === 0 ? (
                           <SuccessCheckIcon />
                         ) : (
                           `${estimatedEta}m`

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { createSubscription, STORAGE_KEY } from "../lib/storage";
 
 const STOP = {
   code: "400075",
@@ -123,6 +124,253 @@ test.beforeEach(async ({ context }) => {
     latitude: STOP.latitude,
     longitude: STOP.longitude,
   });
+});
+
+test("keeps the arrivals warning through 20-second retries until an empty success", async ({ page }) => {
+  await page.clock.install();
+  await mockStopData(page);
+  let requestCount = 0;
+  let recovered = false;
+  await page.route("**/api/stops/400075/arrivals", async (route) => {
+    requestCount += 1;
+    return recovered
+      ? route.fulfill({ json: { arrivals: [], observedAt: await page.evaluate(() => new Date().toISOString()) } })
+      : route.fulfill({ status: 504, json: { error: {
+        code: "OASA_UNAVAILABLE", message: "OASA took too long to respond.", retryable: true,
+      } } });
+  });
+  await page.goto("/");
+  await page.getByRole("combobox", { name: "Search and choose a stop" }).click();
+  await page.getByRole("option", { name: /hsap n\. falhroy/i }).click();
+  const warning = page.locator(".service-warning");
+  await expect(warning).toContainText("Live arrivals unavailable");
+  await expect(warning).toHaveCSS("position", "fixed");
+  await expect(warning).toHaveCSS("top", "16px");
+  const placement = await warning.evaluate((element) => {
+    const bounds = element.getBoundingClientRect();
+    return {
+      centerOffset: Math.abs(bounds.left + bounds.width / 2 - innerWidth / 2),
+      width: bounds.width,
+      expectedWidth: Math.min(innerWidth - 32, 512),
+    };
+  });
+  expect(placement.centerOffset).toBeLessThan(1);
+  expect(placement.width).toBe(placement.expectedWidth);
+  const icon = warning.locator(".service-warning-icon");
+  await expect(icon).toHaveCSS("animation-name", "warning-sign-bounce");
+  await expect(icon).toHaveCSS("animation-iteration-count", "infinite");
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await expect(icon).toHaveCSS("animation-name", "none");
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await expect(icon).toHaveCSS("animation-name", "warning-sign-bounce");
+  await expect(warning).toContainText(/Retrying in (19|20)s/);
+  await expect(warning.locator("p").filter({ hasText: "OASA isn't responding." }))
+    .toHaveText(/OASA isn't responding\. Retrying in \d+s\./);
+  await expect(warning).not.toContainText("Retrying automatically");
+  await expect(page.getByText("Couldn't load live arrivals.", { exact: true })).toBeVisible();
+  await expect(page.getByText("Loading live arrivals...", { exact: true })).toHaveCount(0);
+  await warning.getByRole("button", { name: "Dismiss arrival warning" }).click();
+  await expect(warning).toHaveCount(0);
+
+  await page.clock.fastForward(19_000);
+  await expect.poll(() => requestCount).toBe(1);
+  await expect(warning).toHaveCount(0);
+
+  await page.clock.fastForward(1_000);
+  await expect.poll(() => requestCount).toBe(2);
+  await expect(warning).toBeVisible();
+  await page.clock.fastForward(20_000);
+  await expect.poll(() => requestCount).toBe(3);
+  await expect(warning).toBeVisible();
+
+  recovered = true;
+  await page.clock.fastForward(20_000);
+  await expect(warning).toHaveCount(0);
+  await expect(page.getByText("no bus found :(", { exact: true })).toBeVisible();
+});
+
+test("grays and freezes last-known arrivals and pauses predicted alerts during an outage", async ({ page }, testInfo) => {
+  await page.clock.install();
+  await installNotificationMock(page);
+  await page.addInitScript(({ key, stop, subscription }) => {
+    localStorage.setItem(key, JSON.stringify({
+      version: 5, selectedStop: stop, subscriptions: [subscription], favorites: [],
+    }));
+    Object.defineProperty(navigator, "serviceWorker", { configurable: true, value: {
+      register: async () => ({}),
+      ready: Promise.resolve({ showNotification: async () => {
+        document.documentElement.dataset.notificationSent = "true";
+      } }),
+    } });
+  }, { key: STORAGE_KEY, stop: STOP, subscription: createSubscription("218", "2810") });
+  await mockStopData(page);
+  let requestCount = 0;
+  let recovered = false;
+  await page.route("**/api/stops/400075/arrivals", async (route) => {
+    requestCount += 1;
+    return requestCount === 1 || recovered
+      ? route.fulfill({ json: {
+        arrivals: [
+          { routeCode: "2810", vehicleId: "218-a", minutes: 4 },
+          { routeCode: "5000", vehicleId: "500-a", minutes: 0 },
+          { routeCode: "5000", vehicleId: "500-b", minutes: 8 },
+        ],
+        observedAt: await page.evaluate(() => new Date().toISOString()),
+      } })
+      : route.fulfill({ status: 502, json: { error: {
+        code: "OASA_UNAVAILABLE", message: "OASA is temporarily unavailable.", retryable: true,
+      } } });
+  });
+  await page.goto("/");
+  await expect(page.getByRole("button", { name: /Disable notifications for line 218/ })).toBeVisible();
+  await expect.poll(() => page.evaluate((key) =>
+    JSON.parse(localStorage.getItem(key)!).subscriptions[0].predictedZeroAt, STORAGE_KEY,
+  )).not.toBeNull();
+  await page.clock.fastForward(30_000);
+  const warning = page.locator(".service-warning");
+  await expect(warning).not.toContainText("Arrival alerts are paused");
+  await expect(warning).toHaveCSS("background-color", "rgb(229, 225, 215)");
+  await expect(warning).toHaveCSS("color", "rgb(23, 32, 27)");
+  await expect(page.getByText("Last known arrivals", { exact: true })).toBeVisible();
+  await expect(page.locator(".arrival-timeline-group").first()).toHaveCSS("filter", "grayscale(1)");
+  await expect(page.locator(".arrival-bus-eta")).toHaveText(["8m", "4m", "0m"]);
+  await expect(page.locator(".arrival-confidence-questions")).toHaveCount(3);
+  await expect(page.locator(".arrival-timeline-rail")).toBeHidden();
+  const trackedGroup = page.locator(".arrival-timeline-group").filter({
+    has: page.getByRole("button", { name: /Disable notifications for line 218/ }),
+  });
+  const position = await trackedGroup.getAttribute("style");
+  await expect.poll(() => page.evaluate((key) =>
+    JSON.parse(localStorage.getItem(key)!).subscriptions[0].predictedZeroAt, STORAGE_KEY,
+  )).toBeNull();
+
+  await page.clock.runFor(1_100);
+  const outageLayout = await page.getByLabel("Bus arrivals").evaluate((section) => {
+    const label = section.querySelector(".arrival-last-known")!;
+    const range = document.createRange();
+    range.selectNodeContents(label);
+    const box = section.querySelector(".arrival-bus")!.getBoundingClientRect();
+    const rail = section.querySelector(".arrival-timeline-rail-broken")!;
+    const firstBusTop = Math.min(...Array.from(section.querySelectorAll(".arrival-timeline-bus-marker"),
+      marker => marker.getBoundingClientRect().top));
+    return {
+      labelLeftOffset: Math.abs(range.getBoundingClientRect().left - box.left),
+      labelTopGap: label.getBoundingClientRect().top - section.getBoundingClientRect().top,
+      railGap: firstBusTop - rail.getBoundingClientRect().bottom,
+      railFilter: getComputedStyle(rail).filter,
+      railBackground: getComputedStyle(rail).backgroundImage,
+      dotWidth: getComputedStyle(rail, "::after").width,
+      dotHeight: getComputedStyle(rail, "::after").height,
+      dotRadius: getComputedStyle(rail, "::after").borderRadius,
+    };
+  });
+  expect(outageLayout.labelLeftOffset).toBeLessThan(1);
+  expect(outageLayout.labelTopGap).toBeGreaterThanOrEqual(16);
+  expect(outageLayout.railGap).toBeGreaterThan(0);
+  expect(outageLayout.railFilter).toBe("none");
+  expect(outageLayout.railBackground).toContain("linear-gradient");
+  expect(outageLayout.railBackground).toContain("rgb(229, 86, 47)");
+  expect(outageLayout.dotWidth).toBe("2px");
+  expect(outageLayout.dotHeight).toBe("2px");
+  expect(outageLayout.dotRadius).toBe("50%");
+  await page.screenshot({ path: testInfo.outputPath("unavailable-light.png") });
+  await page.getByRole("switch", { name: "Use dark mode" }).click();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.clock.runFor(250);
+  await expect(warning).toBeInViewport();
+  await expect(warning).toHaveCSS("background-color", "rgb(39, 49, 43)");
+  await expect(page.getByRole("button", { name: "Favorites", exact: true })).toBeEnabled();
+  await page.screenshot({ path: testInfo.outputPath("unavailable-dark-mobile.png") });
+
+  await warning.getByRole("button", { name: "Dismiss arrival warning" }).click();
+  await expect(warning).toHaveCount(0);
+  await expect(page.locator(".arrival-confidence-questions")).toHaveCount(3);
+  await page.getByRole("button", { name: /Change/ }).click();
+  await expect(page.getByRole("combobox", { name: "Search and choose a stop" })).toBeVisible();
+  await page.getByRole("button", { name: /Track/ }).first().click();
+  await expect(warning).toHaveCount(0);
+  await page.clock.fastForward(20_000);
+  await expect(warning).toBeVisible();
+  await page.clock.fastForward(300_000);
+  await expect(trackedGroup).toHaveAttribute("style", position!);
+  await expect(page.locator(".arrival-bus-eta")).toHaveText(["8m", "4m", "0m"]);
+  await expect(page.locator(".arrival-confidence-questions")).toHaveCount(3);
+  await expect(page.locator(".arrival-due-check")).toHaveCount(0);
+  await expect(page.locator("html")).not.toHaveAttribute("data-notification-sent");
+
+  recovered = true;
+  await page.clock.fastForward(20_000);
+  await expect(warning).toHaveCount(0);
+  await expect(page.locator(".arrival-timeline")).toHaveCSS("filter", "none");
+  await expect(page.getByRole("button", { name: /Disable notifications for line 218/ })).toBeVisible();
+  await expect.poll(() => page.evaluate((key) =>
+    JSON.parse(localStorage.getItem(key)!).subscriptions[0].predictedZeroAt, STORAGE_KEY,
+  )).not.toBeNull();
+});
+
+test("keeps a failed stop's route error beside selection until Retry succeeds", async ({ page }) => {
+  await mockStopData(page, []);
+  let recovered = false;
+  await page.route("**/api/stops/400075", (route) => recovered
+    ? route.fulfill({ json: { routes: [] } })
+    : route.fulfill({ status: 502, json: { error: {
+      code: "OASA_UNAVAILABLE", message: "OASA is temporarily unavailable.", retryable: true,
+    } } }));
+  await page.goto("/");
+  await page.getByRole("combobox", { name: "Search and choose a stop" }).click();
+  await page.getByRole("option", { name: /hsap n\. falhroy/i }).click();
+  const warning = page.locator(".service-warning");
+  await expect(warning).toContainText("Couldn't load lines for");
+  await expect(warning.getByRole("button", { name: "Retry", exact: true })).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "Search and choose a stop" })).toBeEnabled();
+  recovered = true;
+  await warning.getByRole("button", { name: "Retry", exact: true }).click();
+  await expect(warning).toHaveCount(0);
+  await expect(page.getByText("no bus found :(", { exact: true })).toBeVisible();
+});
+
+test("distinguishes unusable OASA data, app failures, and offline arrivals", async ({ page, context }) => {
+  await page.clock.install();
+  await mockStopData(page);
+  let status = 502;
+  let code = "OASA_INVALID_RESPONSE";
+  let recovered = false;
+  await page.route("**/api/stops/400075/arrivals", async (route) => recovered
+    ? route.fulfill({ json: { arrivals: [], observedAt: await page.evaluate(() => new Date().toISOString()) } })
+    : route.fulfill({ status, json: { error: { code, message: "Request failed.", retryable: true } } }));
+  await page.goto("/");
+  await page.getByRole("combobox", { name: "Search and choose a stop" }).click();
+  await page.getByRole("option", { name: /hsap n\. falhroy/i }).click();
+  const warning = page.locator(".service-warning");
+  await expect(warning).toContainText("OASA returned unusable data.");
+  status = 500;
+  code = "OASA_UNAVAILABLE";
+  await page.clock.fastForward(20_000);
+  await expect(warning).toContainText("Couldn't refresh live arrivals.");
+  await expect(warning).not.toContainText("OASA isn't responding.");
+  await context.setOffline(true);
+  await expect(warning).toContainText("You're offline.");
+  await expect(warning).not.toContainText("Retrying in");
+  recovered = true;
+  await context.setOffline(false);
+  await page.clock.fastForward(20_000);
+  await expect(warning).toHaveCount(0);
+});
+
+test("keeps optional direction failures contextual while arrivals still work", async ({ page }) => {
+  await installNotificationMock(page);
+  await mockStopData(page);
+  await page.route("**/api/routes/*", (route) => route.fulfill({ status: 502, json: {
+    error: { code: "OASA_UNAVAILABLE", message: "OASA is temporarily unavailable.", retryable: true },
+  } }));
+  await page.goto("/");
+  await page.getByRole("combobox", { name: "Search and choose a stop" }).click();
+  await page.getByRole("option", { name: /hsap n\. falhroy/i }).click();
+  await page.getByRole("button", { name: /Enable notifications for line 218/ }).first().click();
+  await expect(page.getByText("Line 218: direction details are unavailable.", { exact: true })).toBeVisible();
+  await expect(page.locator(".service-warning")).toHaveCount(0);
+  await expect(page.locator(".arrival-timeline")).toHaveCSS("filter", "none");
+  await expect(page.getByRole("button", { name: /Disable notifications for line 218/ }).first()).toBeVisible();
 });
 
 test("keeps stop name search available without location", async ({
@@ -1070,6 +1318,8 @@ test("flips a bus when a fresh snapshot moves it backward", async ({
       element.dataset.correctionIdentity = "retained";
     });
 
+  // Settle the initial snapshot before jumping to the next poll.
+  await page.clock.runFor(1_100);
   await page.clock.fastForward(60_000);
   await expect.poll(requests.arrivalRequestCount).toBeGreaterThanOrEqual(2);
 
@@ -1136,6 +1386,8 @@ test("accelerates and brakes for a forward ETA correction", async ({
     .getByRole("button", { name: /Enable notifications for line 218/ })
     .click();
 
+  // Settle the initial snapshot before jumping to the next poll.
+  await page.clock.runFor(1_100);
   await page.clock.fastForward(60_000);
   await expect.poll(requests.arrivalRequestCount).toBeGreaterThanOrEqual(2);
 

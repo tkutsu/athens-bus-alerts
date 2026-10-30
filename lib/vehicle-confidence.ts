@@ -21,7 +21,7 @@ export interface ConfidenceUpdate {
   arrivals: Array<Arrival & { confidence: VehicleConfidence }>;
 }
 
-const STALE_ARRIVAL_MS = 90_000;
+export const STALE_ARRIVAL_MS = 90_000;
 
 function vehicleKey(arrival: Pick<Arrival, "routeCode" | "vehicleId">) {
   return `${arrival.routeCode}:${arrival.vehicleId}`;

@@ -14,21 +14,25 @@ export interface CachedArrivalSchedule {
   stopCode: string;
   data: ArrivalsPayload;
   nextPollAt: string;
+  unavailable?: boolean;
 }
+
+export const arrivalsPayloadSchema = z.object({
+  arrivals: z.array(
+    z.object({
+      routeCode: z.string(),
+      vehicleId: z.string(),
+      minutes: z.number().int().nonnegative(),
+    }),
+  ),
+  observedAt: z.iso.datetime(),
+});
 
 const scheduleSchema = z.object({
   stopCode: z.string(),
-  data: z.object({
-    arrivals: z.array(
-      z.object({
-        routeCode: z.string(),
-        vehicleId: z.string(),
-        minutes: z.number().int().nonnegative(),
-      }),
-    ),
-    observedAt: z.iso.datetime(),
-  }),
+  data: arrivalsPayloadSchema,
   nextPollAt: z.iso.datetime(),
+  unavailable: z.boolean().optional(),
 });
 
 const cacheSchema = z.object({
@@ -69,11 +73,13 @@ export function writeCachedArrivals(
   stopCode: string,
   data: ArrivalsPayload,
   nextPollAt: number,
+  unavailable = false,
 ): void {
   const entry: CachedArrivalSchedule = {
     stopCode,
     data,
     nextPollAt: new Date(nextPollAt).toISOString(),
+    unavailable,
   };
   const entries = [
     entry,

@@ -1,4 +1,4 @@
-import { apiErrorMessage } from "@/lib/client-api";
+import { apiResponseError } from "@/lib/client-api";
 import type { ServingRoute } from "@/lib/types";
 
 interface StopRoutesPayload {
@@ -22,14 +22,12 @@ export class StopRouteLoader {
     if (!this.pending) {
       const controller = new AbortController();
       const promise = fetch(`/api/stops/${stopCode}`, {
-        signal: controller.signal,
+        signal: AbortSignal.any([controller.signal, AbortSignal.timeout(12_000)]),
       }).then(async (response) => {
         if (!response.ok) {
-          throw new Error(
-            await apiErrorMessage(
-              response,
-              "The request could not be completed.",
-            ),
+          throw await apiResponseError(
+            response,
+            "The request could not be completed.",
           );
         }
         const payload = (await response.json()) as StopRoutesPayload;

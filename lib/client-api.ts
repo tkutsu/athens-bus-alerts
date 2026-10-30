@@ -1,14 +1,29 @@
 import type { ApiErrorPayload } from "@/lib/types";
 
-/** Reads the API error envelope while preserving a caller-specific fallback. */
-export async function apiErrorMessage(
+export class ApiRequestError extends Error {
+  constructor(
+    message: string,
+    public readonly code: ApiErrorPayload["error"]["code"] | null,
+    public readonly status: number,
+  ) {
+    super(message);
+    this.name = "ApiRequestError";
+  }
+}
+
+/** Preserves upstream error details without attributing internal failures to OASA. */
+export async function apiResponseError(
   response: Response,
   fallback: string,
-): Promise<string> {
+): Promise<ApiRequestError> {
   const payload = (await response.json().catch(() => null)) as
     | ApiErrorPayload
     | null;
-  return payload?.error.message ?? fallback;
+  return new ApiRequestError(
+    payload?.error?.message ?? fallback,
+    response.status === 500 ? null : (payload?.error?.code ?? null),
+    response.status,
+  );
 }
 
 export function isAbortError(error: unknown): boolean {
