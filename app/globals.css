@@ -774,7 +774,7 @@ textarea:disabled {
 
 .arrival-bus-code {
   position: relative;
-  top: 0.5px;
+  top: 1px;
 }
 
 .arrival-bus-eta {
@@ -803,6 +803,8 @@ textarea:disabled {
 }
 
 .arrival-direction-arrow {
+  position: relative;
+  top: 0.5px;
   display: block;
   flex: 0 0 auto;
   width: 0.78rem;
