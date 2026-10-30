@@ -95,7 +95,7 @@ export function ArrivalWarning({
                 ? "Retrying..."
                 : seconds > 0
                   ? `Retrying in ${seconds}s.`
-                  : "Waiting to retry."}
+                  : "Retrying..."}
           </span>
         </>
       }

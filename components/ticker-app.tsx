@@ -138,6 +138,7 @@ export function TickerApp() {
     isLoading: arrivalsLoading,
     isOffline: arrivalsOffline,
     retryAt: arrivalsRetryAt,
+    nextPollAt: arrivalsNextPollAt,
   } = useArrivalPolling(
     selectedStop?.code ?? null,
     selectedRouteCodes,
@@ -654,7 +655,7 @@ export function TickerApp() {
           error={arrivalError}
           isOffline={arrivalsOffline}
           isRetrying={arrivalsLoading}
-          retryAt={arrivalsRetryAt}
+          retryAt={arrivalsNextPollAt}
           observedAt={arrivalData?.observedAt ?? null}
           onDismiss={() => setDismissedArrivalWarning(arrivalWarningKey)}
         />
