@@ -313,6 +313,25 @@ describe("useArrivalPolling", () => {
     expect(result.current.error).toBeNull();
   });
 
+  it("exposes the scheduled refresh when a successful cached snapshot is stale", async () => {
+    const nextPollAt = Date.now() + 15_000;
+    writeCachedArrivals("400075", {
+      arrivals: [],
+      observedAt: new Date(Date.now() - 120_000).toISOString(),
+    }, nextPollAt);
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(arrivalsResponse(8));
+    vi.stubGlobal("fetch", fetchMock);
+    const { result } = renderHook(() => useArrivalPolling("400075", ["2810"]));
+    await act(async () => {});
+    expect(result.current.error).toBeNull();
+    expect(result.current.nextPollAt).toBe(nextPollAt);
+    expect(fetchMock).not.toHaveBeenCalled();
+    await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result.current.nextPollAt).toBe(Date.now() + 30_000);
+    expect(result.current.retryAt).toBeNull();
+  });
+
   it("keeps arrivals unavailable after going offline until a fresh response succeeds", async () => {
     const fetchMock = vi.fn<typeof fetch>().mockImplementation(() => Promise.resolve(arrivalsResponse(8)));
     vi.stubGlobal("fetch", fetchMock);

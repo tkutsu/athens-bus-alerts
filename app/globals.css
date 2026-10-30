@@ -508,6 +508,7 @@ textarea:disabled {
   min-height: 0;
   flex: 1 1 auto;
   flex-direction: column;
+  overflow-y: auto;
 }
 
 .service-warning {

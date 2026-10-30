@@ -38,10 +38,12 @@ interface ArrivalSnapshot {
 }
 
 const TIMELINE_MAX_MINUTES = 20;
+const MAX_VISIBLE_BUSES = 10;
 const BUS_MARKER_SIZE_PX = 32;
 const TIMELINE_VERTICAL_INSET_PX = 92;
 const TIMELINE_TOP_INSET_PX = 20;
 const TIMELINE_BOTTOM_INSET_PX = 72;
+const TIMELINE_EDGE_PADDING_PX = 16;
 const CORRECTION_ANIMATION_MS = 1_050;
 const LINE_ENTRANCE_START_MS = 280;
 const LINE_ENTRANCE_END_MS = 860;
@@ -205,7 +207,7 @@ export function forwardJumpVehicleKeys(
   );
 }
 
-/** Renders every physical bus on one ETA-scaled vertical rail. */
+/** Renders the ten soonest physical buses on one ETA-scaled vertical rail. */
 export function ArrivalTimeline({
   arrivals,
   isLoading,
@@ -215,7 +217,12 @@ export function ArrivalTimeline({
   selectedRouteCodes,
 }: ArrivalTimelineProps) {
   const [now, setNow] = useState(() => Date.now());
-  const [timelineHeight, setTimelineHeight] = useState(0);
+  const [timelineMetrics, setTimelineMetrics] = useState({
+    height: 0,
+    rowHeight: 36,
+    gap: 4,
+  });
+  const timelineHeight = timelineMetrics.height;
   const [previousSnapshot, setPreviousSnapshot] =
     useState<ArrivalSnapshot | null>(null);
   const timelineObserverRef = useRef<ResizeObserver | null>(null);
@@ -226,6 +233,12 @@ export function ArrivalTimeline({
   const selectedRoutes = useMemo(
     () => new Set(selectedRouteCodes),
     [selectedRouteCodes],
+  );
+  const visibleArrivals = useMemo(
+    () => [...arrivals]
+      .sort((a, b) => a.minutes - b.minutes || a.vehicleKey.localeCompare(b.vehicleKey))
+      .slice(0, MAX_VISIBLE_BUSES),
+    [arrivals],
   );
 
   useEffect(() => {
@@ -247,8 +260,15 @@ export function ArrivalTimeline({
     timelineObserverRef.current?.disconnect();
     timelineObserverRef.current = null;
     if (!timeline) return;
-    const updateHeight = () =>
-      setTimelineHeight(timeline.getBoundingClientRect().height);
+    const updateHeight = () => {
+      const row = timeline.querySelector<HTMLElement>(".arrival-timeline-row");
+      const group = timeline.querySelector<HTMLElement>(".arrival-timeline-group");
+      setTimelineMetrics({
+        height: timeline.clientHeight,
+        rowHeight: row?.offsetHeight ?? 36,
+        gap: group ? Number.parseFloat(getComputedStyle(group).rowGap) : 4,
+      });
+    };
     updateHeight();
     const observer = new ResizeObserver(updateHeight);
     observer.observe(timeline);
@@ -303,7 +323,7 @@ export function ArrivalTimeline({
   const elapsedMinutes = isUnavailable ? 0 : Math.max(0, (now - observedAtMs) / 60_000);
   const groups = useMemo(() => {
     const grouped = new Map<number, TimelineArrival[]>();
-    for (const arrival of arrivals) {
+    for (const arrival of visibleArrivals) {
       const bucket = Math.min(TIMELINE_MAX_MINUTES, arrival.minutes);
       grouped.set(bucket, [...(grouped.get(bucket) ?? []), arrival]);
     }
@@ -327,10 +347,45 @@ export function ArrivalTimeline({
         };
       })
       .sort((a, b) => b.minutes - a.minutes);
-  }, [arrivals, selectedRoutes]);
+  }, [visibleArrivals, selectedRoutes]);
   const entranceTimings = useMemo(() => new Map(
-    arrivals.map((arrival) => [arrival.vehicleKey, arrivalEntranceTiming(arrival.vehicleKey)]),
-  ), [arrivals]);
+    visibleArrivals.map((arrival) => [arrival.vehicleKey, arrivalEntranceTiming(arrival.vehicleKey)]),
+  ), [visibleArrivals]);
+  const groupHeights = groups.map(
+    (group) =>
+      group.items.length * (timelineMetrics.rowHeight + timelineMetrics.gap) -
+      timelineMetrics.gap,
+  );
+  const minimumHeight = groupHeights.reduce(
+    (height, groupHeight) => height + groupHeight + timelineMetrics.gap,
+    TIMELINE_EDGE_PADDING_PX * 2 - timelineMetrics.gap,
+  );
+  const layoutHeight = Math.max(timelineHeight, minimumHeight);
+  const groupTops = new Array<number>(groups.length);
+  let nextTop = layoutHeight - TIMELINE_EDGE_PADDING_PX;
+  // Pack from the far end toward the stop so shorter ETAs always sit above longer ones.
+  for (let index = 0; index < groups.length; index++) {
+    const group = groups[index];
+    const position =
+      group.minutes >= TIMELINE_MAX_MINUTES
+        ? 100
+        : timelinePositionPercent(
+            group.minutes,
+            observedAtMs,
+            isUnavailable ? observedAtMs : now,
+          );
+    const desiredTop = group.minutes >= TIMELINE_MAX_MINUTES
+      ? layoutHeight - TIMELINE_EDGE_PADDING_PX - groupHeights[index]
+      : timelineTopPixels(position, layoutHeight) - groupHeights[index] / 2;
+    groupTops[index] = Math.min(desiredTop, nextTop - groupHeights[index]);
+    nextTop = groupTops[index] - timelineMetrics.gap;
+  }
+  // Keep a cluster near the stop inside the rail, pushing only its close neighbors down.
+  let previousBottom = TIMELINE_EDGE_PADDING_PX;
+  for (let index = groups.length - 1; index >= 0; index--) {
+    groupTops[index] = Math.max(groupTops[index], previousBottom);
+    previousBottom = groupTops[index] + groupHeights[index] + timelineMetrics.gap;
+  }
 
   return (
     <section
@@ -350,10 +405,14 @@ export function ArrivalTimeline({
       ) : arrivals.length === 0 ? (
         <p className="arrival-timeline-empty">no bus found :(</p>
       ) : (
-        <div className="arrival-timeline" ref={setTimelineNode}>
+        <div
+          className="arrival-timeline"
+          ref={setTimelineNode}
+          style={{ minHeight: minimumHeight }}
+        >
           <div aria-hidden="true" className="arrival-timeline-rail" />
 
-          {groups.map((group) => {
+          {groups.map((group, groupIndex) => {
             const atCutoff = group.minutes >= TIMELINE_MAX_MINUTES;
             const position = atCutoff
               ? 100
@@ -408,6 +467,8 @@ export function ArrivalTimeline({
 
             const groupStyle = {
               ...style,
+              top: `${groupTops[groupIndex]}px`,
+              "--arrival-group-translate-y": "0px",
               "--backtrack-offset": `${backwardOffset}px`,
             } as CSSProperties;
 

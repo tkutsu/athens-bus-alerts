@@ -46,7 +46,7 @@ export function useArrivalPolling(
   const [error, setError] = useState<Error | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isOffline, setIsOffline] = useState(false);
-  const [retryAt, setRetryAt] = useState<number | null>(null);
+  const [nextPollAt, setNextPollAt] = useState<number | null>(null);
   const activeStopRef = useRef<string | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const controllerRef = useRef<AbortController | null>(null);
@@ -115,7 +115,7 @@ export function useArrivalPolling(
         dataRef.current = payload;
         setData(payload);
         setError(null);
-        setRetryAt(null);
+        setNextPollAt(nextPollAt);
         writeCachedArrivals(stopCode, payload, nextPollAt);
       } catch (refreshError) {
         if (!controller.signal.aborted) {
@@ -123,7 +123,7 @@ export function useArrivalPolling(
           retryNotBeforeRef.current = retryAt;
           nextPollAtRef.current = retryAt;
           persistSchedule(retryAt);
-          setRetryAt(retryAt);
+          setNextPollAt(retryAt);
           setError(
             refreshError instanceof Error
               ? refreshError
@@ -150,19 +150,18 @@ export function useArrivalPolling(
     activeStopRef.current = stopCode;
     if (changingStop) {
       setError(null);
-      setRetryAt(null);
       lastRequestStartedAtRef.current = 0;
       retryNotBeforeRef.current = 0;
       const cached = stopCode ? readCachedArrivals(stopCode) : null;
       if (cached?.unavailable) {
         setError(new Error("Waiting for a fresh arrivals response."));
-        setRetryAt(new Date(cached.nextPollAt).getTime());
       }
       dataRef.current = cached?.data ?? null;
       setData(cached?.data ?? null);
       nextPollAtRef.current = cached
         ? new Date(cached.nextPollAt).getTime()
         : Date.now();
+      setNextPollAt(stopCode ? nextPollAtRef.current : null);
     }
     setIsOffline(!navigator.onLine);
     setIsLoading(false);
@@ -208,6 +207,7 @@ export function useArrivalPolling(
         setError((current) => current ?? new Error("Waiting for a fresh arrivals response."));
       } else if (event.type === "online") {
         nextPollAtRef.current = Math.max(Date.now(), retryNotBeforeRef.current);
+        setNextPollAt(nextPollAtRef.current);
       }
       if (!enabled || document.hidden || !navigator.onLine) {
         if (timeoutRef.current) clearTimeout(timeoutRef.current);
@@ -238,5 +238,5 @@ export function useArrivalPolling(
   }, [enabled, refresh, stopCode]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
-  return { data, error, isLoading, isOffline, retryAt };
+  return { data, error, isLoading, isOffline, retryAt: error ? nextPollAt : null, nextPollAt };
 }

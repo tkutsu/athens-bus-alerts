@@ -239,7 +239,8 @@ test("grays and freezes last-known arrivals and pauses predicted alerts during a
   const trackedGroup = page.locator(".arrival-timeline-group").filter({
     has: page.getByRole("button", { name: /Disable notifications for line 218/ }),
   });
-  const position = await trackedGroup.getAttribute("style");
+  const position = await trackedGroup.evaluate(element =>
+    element.style.getPropertyValue("--timeline-position"));
   await expect.poll(() => page.evaluate((key) =>
     JSON.parse(localStorage.getItem(key)!).subscriptions[0].predictedZeroAt, STORAGE_KEY,
   )).toBeNull();
@@ -314,7 +315,7 @@ test("grays and freezes last-known arrivals and pauses predicted alerts during a
   await page.clock.fastForward(20_000);
   await expect(warning).toBeVisible();
   await page.clock.fastForward(300_000);
-  await expect(trackedGroup).toHaveAttribute("style", position!);
+  await expect(trackedGroup).toHaveCSS("--timeline-position", position);
   await expect(page.locator(".arrival-bus-eta")).toHaveText(["8m", "4m", "0m"]);
   await expect(page.locator(".arrival-confidence-questions")).toHaveCount(3);
   await expect(page.locator(".arrival-due-check")).toHaveCount(0);
@@ -1048,7 +1049,7 @@ test("uses one progressive timeline with independent multi-line toggles", async 
   expect(requests.arrivalRequestCount()).toBe(1);
 });
 
-test("outlines overlapping bus boxes like their circles in both themes", async ({ page }, testInfo) => {
+test("packs nearby buses without overlap in ETA order in both themes", async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.emulateMedia({ colorScheme: "light" });
   await page.clock.install();
@@ -1056,6 +1057,9 @@ test("outlines overlapping bus boxes like their circles in both themes", async (
   await mockStopData(page, [
     { routeCode: "2810", vehicleId: "218-a", minutes: 4 },
     { routeCode: "2810", vehicleId: "218-b", minutes: 5 },
+    { routeCode: "2810", vehicleId: "218-c", minutes: 19 },
+    { routeCode: "2810", vehicleId: "218-d", minutes: 23 },
+    { routeCode: "2810", vehicleId: "218-e", minutes: 24 },
   ]);
   await page.addInitScript(({ key, stop, subscription }) => {
     localStorage.setItem(key, JSON.stringify({
@@ -1063,8 +1067,11 @@ test("outlines overlapping bus boxes like their circles in both themes", async (
     }));
   }, { key: STORAGE_KEY, stop: STOP, subscription: createSubscription("218", "2810") });
   await page.goto("/");
-  await expect(page.locator(".arrival-bus-selected")).toHaveCount(2);
+  await expect(page.locator(".arrival-bus-selected")).toHaveCount(5);
   await page.clock.runFor(1_100);
+  await page.locator(".arrival-timeline").evaluate(async timeline => {
+    await Promise.allSettled(timeline.getAnimations({ subtree: true }).map(animation => animation.finished));
+  });
 
   for (const theme of ["light", "dark"]) {
     if (theme === "dark") {
@@ -1075,12 +1082,101 @@ test("outlines overlapping bus boxes like their circles in both themes", async (
       const box = row.querySelector(".arrival-bus")!;
       const boxStyle = getComputedStyle(box);
       const circleStyle = getComputedStyle(row.querySelector(".arrival-timeline-marker-face-enabled")!);
-      return { boxBorder: boxStyle.border, circleBorder: circleStyle.border, top: box.getBoundingClientRect().top, bottom: box.getBoundingClientRect().bottom };
+      const eta = row.querySelector(".arrival-bus-eta")!;
+      return { boxBorder: boxStyle.border, circleBorder: circleStyle.border, top: box.getBoundingClientRect().top, bottom: box.getBoundingClientRect().bottom, eta: Number.parseInt(eta.textContent!), etaTop: eta.getBoundingClientRect().top, etaBottom: eta.getBoundingClientRect().bottom };
     }));
     for (const border of borders) expect(border.boxBorder).toBe(border.circleBorder);
-    const [upper, lower] = borders.sort((a, b) => a.top - b.top);
-    expect(upper.bottom).toBeGreaterThan(lower.top);
-    await page.screenshot({ path: testInfo.outputPath(`bus-box-borders-${theme}.png`) });
+    const ordered = borders.sort((a, b) => a.top - b.top);
+    expect(ordered.map(row => row.eta)).toEqual([4, 5, 19, 23, 24]);
+    for (let i = 1; i < ordered.length; i++) {
+      expect(ordered[i].top - ordered[i - 1].bottom).toBeGreaterThanOrEqual(1);
+      expect(ordered[i].etaTop).toBeGreaterThan(ordered[i - 1].etaBottom);
+    }
+    expect(ordered[1].top - ordered[0].bottom).toBeLessThan(6);
+    expect(ordered[4].top - ordered[3].bottom).toBeLessThan(6);
+    await page.screenshot({ path: testInfo.outputPath(`bus-spacing-${theme}.png`) });
+  }
+});
+
+for (const { minutes, expected } of [
+  { minutes: [31, 24, 5, 40, 0, 4, 23, 7, 3], expected: [0, 3, 4, 5, 7, 23, 24, 31, 40] },
+  { minutes: [24, 5, 0, 4, 23, 7, 3, 2, 1, 6], expected: [0, 1, 2, 3, 4, 5, 6, 7, 23, 24] },
+  { minutes: [31, 24, 5, 40, 0, 4, 23, 7, 3, 2, 1, 25, 6], expected: [0, 1, 2, 3, 4, 5, 6, 7, 23, 24] },
+]) {
+  test(`shows the soonest ten of ${minutes.length} buses`, async ({ page }) => {
+    await page.clock.install();
+    await mockStopData(page, minutes.map((minutes, index) => ({
+      routeCode: "2810",
+      vehicleId: `bus-${index}`,
+      minutes,
+    })));
+    await page.addInitScript(({ key, stop }) => {
+      localStorage.setItem(key, JSON.stringify({
+        version: 5, selectedStop: stop, subscriptions: [], favorites: [],
+      }));
+    }, { key: STORAGE_KEY, stop: STOP });
+    await page.goto("/");
+    await expect(page.locator(".arrival-timeline-row")).toHaveCount(expected.length);
+    const displayed = await page.locator(".arrival-bus-eta").evaluateAll(elements =>
+      elements.map(element => element.classList.contains("arrival-bus-eta-due")
+        ? 0 : Number.parseInt(element.textContent!)).sort((a, b) => a - b));
+    expect(displayed).toEqual(expected);
+    const cached = await page.evaluate(() => {
+      const raw = localStorage.getItem("athens-bus-ticker:arrivals:v2");
+      return raw ? JSON.parse(raw).entries.find((entry: { stopCode: string }) =>
+        entry.stopCode === "400075").data.arrivals.length : null;
+    });
+    expect(cached).toBe(minutes.length);
+  });
+}
+
+test("keeps crowded buses ordered and reachable when the viewport shrinks", async ({ page }) => {
+  await page.clock.install();
+  await mockStopData(page, [0, 1, 1, 2, 19, 23, 24].map((minutes, index) => ({
+    routeCode: "2810",
+    vehicleId: `bus-${index}`,
+    minutes,
+  })));
+  await page.addInitScript(({ key, stop }) => {
+    localStorage.setItem(key, JSON.stringify({
+      version: 5, selectedStop: stop, subscriptions: [], favorites: [],
+    }));
+  }, { key: STORAGE_KEY, stop: STOP });
+  await page.goto("/");
+  await expect(page.locator(".arrival-timeline-row")).toHaveCount(7);
+  await page.clock.runFor(1_100);
+
+  for (const height of [844, 480, 844]) {
+    await page.setViewportSize({ width: 390, height });
+    // Allow resize observation and the existing movement transition to finish.
+    await page.clock.runFor(1_100);
+    await page.locator(".arrival-timeline").evaluate(async timeline => {
+      await new Promise(requestAnimationFrame);
+      await new Promise(requestAnimationFrame);
+      await Promise.all(Array.from(timeline.querySelectorAll(".arrival-timeline-group"))
+        .flatMap(group => group.getAnimations()).map(animation => animation.finished));
+    });
+    const layout = await page.locator(".arrival-timeline").evaluate(timeline => {
+      const bounds = timeline.getBoundingClientRect();
+      const rows = Array.from(timeline.querySelectorAll(".arrival-timeline-row"), row => {
+        const box = row.getBoundingClientRect();
+        const eta = row.querySelector(".arrival-bus-eta")!;
+        return {
+          top: box.top, bottom: box.bottom,
+          eta: eta.classList.contains("arrival-bus-eta-due") ? 0 : Number.parseInt(eta.textContent!),
+        };
+      }).sort((a, b) => a.top - b.top);
+      return { rows, top: bounds.top, bottom: bounds.bottom };
+    });
+    expect(layout.rows.map(row => row.eta), JSON.stringify({ height, layout })).toEqual([0, 1, 1, 2, 19, 23, 24]);
+    expect(layout.rows[0].top - layout.top).toBeGreaterThanOrEqual(15);
+    expect(layout.bottom - layout.rows.at(-1)!.bottom).toBeGreaterThanOrEqual(15);
+    for (let i = 1; i < layout.rows.length; i++) {
+      expect(layout.rows[i].top - layout.rows[i - 1].bottom).toBeGreaterThanOrEqual(3.9);
+    }
+    const lastBus = page.getByRole("button", { name: /Enable notifications for line 218, 24 minutes away/ });
+    await lastBus.scrollIntoViewIfNeeded();
+    await expect(lastBus).toBeInViewport();
   }
 });
 
