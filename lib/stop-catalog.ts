@@ -23,6 +23,26 @@ export interface MapBounds {
   west: number;
 }
 
+const searchIndexes = new WeakMap<readonly CatalogStop[], Array<{
+  stop: CatalogStop;
+  name: string;
+  transliteratedName: string;
+}>>();
+
+/** Builds search keys once for each immutable catalogue snapshot. */
+function searchIndex(stops: readonly CatalogStop[]) {
+  let index = searchIndexes.get(stops);
+  if (!index) {
+    index = stops.map((stop) => ({
+      stop,
+      name: normalizeSearchText(stop.name),
+      transliteratedName: transliterateGreek(stop.name),
+    }));
+    searchIndexes.set(stops, index);
+  }
+  return index;
+}
+
 /** Adds UI fields and a user-relative distance when an origin is available. */
 function summarizeStop(
   stop: CatalogStop,
@@ -61,15 +81,11 @@ export function searchStopNames(
   const normalizedQuery = normalizeSearchText(query);
   if (normalizedQuery.length < 2) return { stops: [], total: 0 };
 
-  const matches = stops
-    .filter((stop) => {
-      const name = normalizeSearchText(stop.name);
-      return (
-        name.includes(normalizedQuery) ||
-        transliterateGreek(stop.name).includes(normalizedQuery)
-      );
-    })
-    .map((stop) => summarizeStop(stop, origin))
+  const matches = searchIndex(stops)
+    .filter(({ name, transliteratedName }) =>
+      name.includes(normalizedQuery) || transliteratedName.includes(normalizedQuery),
+    )
+    .map(({ stop }) => summarizeStop(stop, origin))
     .sort((a, b) =>
       origin
         ? a.distanceMeters - b.distanceMeters ||

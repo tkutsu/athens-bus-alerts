@@ -339,13 +339,20 @@ export function readStoredState(): StoredState {
 }
 
 export function writeStoredState(state: StoredState): void {
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  } catch {
+    // Tracking remains usable in memory when storage is unavailable or full.
+  }
 }
 
 export function clearStoredState(): void {
-  window.localStorage.removeItem(STORAGE_KEY);
-  window.localStorage.removeItem(V4_STORAGE_KEY);
-  window.localStorage.removeItem(V3_STORAGE_KEY);
-  window.localStorage.removeItem(LEGACY_STORAGE_KEY);
+  for (const key of [STORAGE_KEY, V4_STORAGE_KEY, V3_STORAGE_KEY, LEGACY_STORAGE_KEY]) {
+    try {
+      window.localStorage.removeItem(key);
+    } catch {
+      // A failed removal must not prevent clearing the active in-memory state.
+    }
+  }
   clearCachedArrivals();
 }

@@ -1,4 +1,5 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
+import { StartupSplash } from "@/components/startup-screen";
 import "./globals.css";
 
 const themeInitializationScript = `
@@ -21,14 +22,14 @@ const themeInitializationScript = `
 `;
 
 export const metadata: Metadata = {
-  title: "Athens Bus Tracker",
+  title: "My Pocket Bus: Athens",
   description:
     "A compact personal ticker for nearby OASA stops and live arrivals.",
-  applicationName: "Athens Bus Tracker",
+  applicationName: "My Pocket Bus: Athens",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "Bus Tracker",
+    title: "My Pocket Bus",
   },
   icons: {
     icon: [
@@ -37,6 +38,10 @@ export const metadata: Metadata = {
     ],
     apple: "/apple-touch-icon.png",
   },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#e5562f",
 };
 
 export default function RootLayout({
@@ -51,7 +56,10 @@ export default function RootLayout({
           dangerouslySetInnerHTML={{ __html: themeInitializationScript }}
         />
       </head>
-      <body>{children}</body>
+      <body>
+        {children}
+        <StartupSplash />
+      </body>
     </html>
   );
 }

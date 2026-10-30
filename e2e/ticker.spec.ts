@@ -580,9 +580,9 @@ test("uses one progressive timeline with independent multi-line toggles", async 
   await page.goto("/");
 
   await expect(
-    page.getByRole("heading", { name: "Athens Bus Tracker" }),
+    page.getByRole("heading", { name: "My Pocket Bus: Athens" }),
   ).toBeVisible();
-  await expect(page).toHaveTitle("Athens Bus Tracker");
+  await expect(page).toHaveTitle("My Pocket Bus: Athens");
   await expect(page.getByRole("tab")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Notify" })).toHaveCount(0);
   await expect(page.getByLabel("Map of OASA bus stops")).toBeVisible();
@@ -867,7 +867,7 @@ test("uses one progressive timeline with independent multi-line toggles", async 
   );
   const endpointTag = selectedEndpointRow.locator(".arrival-bus");
   // Both bus hit targets share the same restrained hover elevation.
-  await page.getByRole("heading", { name: "Athens Bus Tracker" }).hover();
+  await page.getByRole("heading", { name: "My Pocket Bus: Athens" }).hover();
   const defaultMarkerShadow = await endpointMarkerFace.evaluate(
     (element) => getComputedStyle(element).boxShadow,
   );
@@ -895,7 +895,7 @@ test("uses one progressive timeline with independent multi-line toggles", async 
     "box-shadow",
     "rgba(23, 32, 27, 0.12) 0px 3px 8px 0px",
   );
-  await page.getByRole("heading", { name: "Athens Bus Tracker" }).hover();
+  await page.getByRole("heading", { name: "My Pocket Bus: Athens" }).hover();
   await endpointTag.hover();
   await expect
     .poll(() =>

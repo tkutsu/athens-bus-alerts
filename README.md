@@ -1,4 +1,4 @@
-# Athens Bus Tracker
+# My Pocket Bus: Athens
 
 A compact, installable personal web app for nearby OASA bus stops, live
 arrivals, a clickable stop map, multi-line arrival alerts, and named favorite
