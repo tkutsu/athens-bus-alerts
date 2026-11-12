@@ -1,4 +1,4 @@
-# My Pocket Bus: Athens
+# <img src="docs/icon.svg" alt="" width="40" align="center"> My Pocket Bus: Athens
 
 A compact, installable personal web app for nearby OASA bus stops, live
 arrivals, a clickable stop map, multi-line arrival alerts, and named favorite
