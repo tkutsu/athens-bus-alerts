@@ -390,9 +390,119 @@ textarea:disabled {
   transform: translateY(-1px) scale(1.05);
 }
 
+/* A soft card that drops in with a squash. Its countdown runs along the bottom
+   edge, and the rounded corners clip the bar's ends. */
+.toast {
+  position: fixed;
+  z-index: 1000;
+  top: 1rem;
+  right: 1rem;
+  left: 1rem;
+  display: flex;
+  max-width: 32rem;
+  min-height: 3.75rem;
+  align-items: center;
+  gap: 0.75rem;
+  margin-inline: auto;
+  overflow: hidden;
+  border: 2px solid var(--paper);
+  border-radius: 1.25rem;
+  background: rgb(var(--surface-rgb));
+  padding: 0.5rem 0.5rem 0.6rem;
+  color: var(--ink);
+  font-size: 0.875rem;
+  line-height: 1.3;
+  box-shadow:
+    0 10px 26px rgb(var(--shadow-rgb) / 0.16),
+    0 2px 6px rgb(var(--shadow-rgb) / 0.08);
+  cursor: pointer;
+  animation: toast-drop 560ms cubic-bezier(0.2, 0.8, 0.3, 1) both;
+  /* Its bus blinks now and then like the ones on the rail. */
+  --bus-blink-period: 3.1s;
+  --bus-blink-delay: -1.2s;
+  --bus-glance-delay: -2s;
+  --bus-glance-x: 0.5px;
+}
+
+.toast-badge {
+  display: grid;
+  width: 2.5rem;
+  height: 2.5rem;
+  flex: none;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--muted-marker);
+  color: white;
+}
+
+.toast-badge .bus-face {
+  width: 1.5rem;
+  height: 1.5rem;
+}
+
+.toast-urgent .toast-badge {
+  background: var(--signal);
+  box-shadow: 0 0 0 3px rgb(var(--signal-rgb) / 0.18);
+}
+
+.toast-urgent .bus-face {
+  animation: toast-face-hop 0.9s 500ms ease-in-out 3;
+}
+
+.toast-error .toast-badge {
+  background: var(--toast-error);
+  color: var(--toast-error-ink);
+}
+
+.toast-badge-mark {
+  font-size: 1.25rem;
+  font-weight: 900;
+  line-height: 1;
+  animation: toast-wiggle 600ms 450ms ease-in-out;
+}
+
+.toast-message {
+  min-width: 0;
+  flex: 1;
+}
+
+.toast-urgent .toast-message {
+  font-weight: 800;
+}
+
+.toast-dismiss {
+  display: grid;
+  width: 1.75rem;
+  height: 1.75rem;
+  flex: none;
+  place-items: center;
+  border-radius: 999px;
+  color: rgb(var(--ink-rgb) / 0.45);
+  font-size: 1.15rem;
+  line-height: 1;
+}
+
+.toast-dismiss:hover {
+  color: var(--ink);
+}
+
 .toast-countdown {
+  position: absolute;
+  bottom: 0;
+  left: 0;
   width: 100%;
+  height: 3px;
+  background: rgb(var(--ink-rgb) / 0.3);
   animation: toast-countdown 5s linear forwards;
+}
+
+.toast-urgent .toast-countdown {
+  background: var(--signal);
+}
+
+.toast-error .toast-countdown {
+  background: var(--toast-error-ink);
+  opacity: 0.55;
 }
 
 .selected-stop-row {
@@ -801,25 +911,19 @@ textarea:disabled {
   fill: #17201b;
 }
 
-.bus-face-asleep {
+.bus-face-asleep,
+.bus-face-happy,
+.bus-face-squeeze {
   display: none;
 }
 
-/* Your bus: wide-eyed, hopping, inside a pulsing ring. */
+/* Your bus: wide-eyed and hopping. */
 .arrival-timeline-row-target .arrival-timeline-marker-body {
   animation: bus-face-hop 1.3s infinite;
 }
 
-.arrival-timeline-row-target .arrival-timeline-marker-body::after {
-  position: absolute;
-  inset: calc(-0.2rem - 7px);
-  border: 2px solid rgb(var(--signal-rgb) / 0.45);
-  border-radius: inherit;
-  content: "";
-  animation: bus-target-halo 0.8s ease-in-out infinite alternate;
-}
-
-.arrival-timeline-row-target .bus-face-eyes {
+.arrival-timeline-row-target .bus-face-eyes,
+.stop-landing-bus .bus-face-eyes {
   transform: scale(1.14);
 }
 
@@ -890,8 +994,17 @@ textarea:disabled {
 }
 
 /* Each new minute drops into place with a small bounce. */
-.arrival-bus-eta-value {
+.arrival-bus-eta-digit,
+.arrival-bus-eta-drop {
   display: inline-block;
+}
+
+/* Smaller than the digits, so "14min" still fits the ETA column. */
+.arrival-bus-eta-unit {
+  margin-left: 0.05em;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
 }
 
 .arrival-bus-eta-drop {
@@ -1083,8 +1196,9 @@ textarea:disabled {
     cubic-bezier(0.16, 1, 0.3, 1) var(--arrival-tag-delay) both;
 }
 
-/* A departing tag runs the same slide backwards, so it accelerates into hiding,
-   then its circle overshoots and shrinks to nothing. */
+/* A departing tag and indicator shrink into the edge of their circle and fade,
+   so nothing slides underneath it. Then the circle overshoots and shrinks to
+   nothing. */
 .arrival-timeline-group-departing {
   pointer-events: none;
   transition: none;
@@ -1092,12 +1206,14 @@ textarea:disabled {
 
 .arrival-timeline-row-departing .arrival-tag,
 .arrival-timeline-row-homing .arrival-tag {
-  animation: arrival-tag-extend 240ms cubic-bezier(0.16, 1, 0.3, 1) reverse both;
+  transform-origin: left center;
+  animation: arrival-tag-merge 220ms cubic-bezier(0.5, 0, 0.75, 0) both;
 }
 
 .arrival-timeline-row-departing .arrival-confidence-indicator,
 .arrival-timeline-row-homing .arrival-confidence-indicator {
-  animation: arrival-badge-extend 240ms cubic-bezier(0.16, 1, 0.3, 1) reverse both;
+  transform-origin: right center;
+  animation: arrival-badge-merge 220ms cubic-bezier(0.5, 0, 0.75, 0) both;
 }
 
 /* Already tucked away, so there is nothing to slide back. */
@@ -1106,14 +1222,47 @@ textarea:disabled {
   animation: none;
 }
 
-/* Your bus, with you at the stop: once its tag and indicator have merged into
-   it, it crouches and jumps up the rail into the stop marker. */
-.arrival-timeline-row-homing .arrival-timeline-bus-marker {
-  animation: bus-pull-in 460ms 240ms both;
-}
-
+/* Your bus, with you at the stop, holds still while its tag and indicator merge
+   into it. Then a copy of the circle leaves for the stop (pull-in.ts). */
 .arrival-timeline-row-homing .arrival-timeline-marker-body {
   animation: none;
+}
+
+/* The pulling-in bus squeezes its eyes shut, goes wide-eyed and smiles. */
+.stop-landing-bus .bus-face-gaze {
+  animation: none;
+}
+
+.stop-landing-bus[data-face="wide"] .bus-face-eyes {
+  transform: scale(1.28);
+}
+
+.stop-landing-bus[data-face="wide"] .bus-face-pupil {
+  transform: translateY(-1.2px) scale(0.8);
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.stop-landing-bus[data-face="squeeze"] .bus-face-eyes,
+.stop-landing-bus[data-face="happy"] .bus-face-eyes {
+  display: none;
+}
+
+.stop-landing-bus[data-face="squeeze"] .bus-face-squeeze,
+.stop-landing-bus[data-face="happy"] .bus-face-happy {
+  display: inline;
+}
+
+.stop-landing-bus {
+  position: fixed;
+  z-index: 60;
+  inset: auto;
+  margin: 0;
+  border-radius: 999px;
+  color: white;
+  pointer-events: none;
+  transform: none;
+  will-change: transform;
 }
 
 .arrival-timeline-row-departing .arrival-timeline-bus-marker {
@@ -1207,13 +1356,6 @@ textarea:disabled {
   opacity: 0.72;
 }
 
-.urgent-toast {
-  box-shadow:
-    0 14px 36px rgb(0 0 0 / 0.34),
-    0 0 0 4px rgb(var(--signal-rgb) / 0.16);
-  animation: urgent-toast-in 240ms ease-out both;
-}
-
 /* Clips the tag at the circle's centre while it slides, so it never shows past it. */
 @keyframes arrival-tag-extend {
   from {
@@ -1260,6 +1402,21 @@ textarea:disabled {
   to {
     clip-path: inset(-0.5rem calc(-1 * var(--arrival-badge-tuck)) -0.5rem -0.5rem);
     transform: translateX(0);
+  }
+}
+
+/* Stops at the circle's edge: 1rem from its centre. */
+@keyframes arrival-tag-merge {
+  to {
+    opacity: 0;
+    transform: translateX(calc(1rem - var(--arrival-tag-tuck))) scale(0.6);
+  }
+}
+
+@keyframes arrival-badge-merge {
+  to {
+    opacity: 0;
+    transform: translateX(calc(var(--arrival-badge-tuck) - 1rem)) scale(0.6);
   }
 }
 
@@ -1312,10 +1469,56 @@ textarea:disabled {
   }
 }
 
-@keyframes urgent-toast-in {
-  from {
+@keyframes toast-drop {
+  0% {
     opacity: 0;
-    transform: translate(-50%, 10px) scale(0.97);
+    transform: translateY(-120%) scale(0.9);
+  }
+
+  55% {
+    opacity: 1;
+    transform: translateY(6%) scale(1.03, 0.96);
+  }
+
+  75% {
+    transform: translateY(-2%) scale(0.99, 1.02);
+  }
+
+  100% {
+    transform: none;
+  }
+}
+
+@keyframes toast-face-hop {
+  0%,
+  100% {
+    transform: none;
+  }
+
+  30% {
+    transform: translateY(-4px) scale(0.95, 1.06);
+  }
+
+  55% {
+    transform: scale(1.06, 0.94);
+  }
+}
+
+@keyframes toast-wiggle {
+  20% {
+    transform: rotate(-14deg);
+  }
+
+  40% {
+    transform: rotate(10deg);
+  }
+
+  60% {
+    transform: rotate(-6deg);
+  }
+
+  80% {
+    transform: rotate(3deg);
   }
 }
 
@@ -1372,16 +1575,6 @@ textarea:disabled {
   }
 }
 
-@keyframes bus-target-halo {
-  from {
-    opacity: 0.35;
-  }
-
-  to {
-    opacity: 1;
-  }
-}
-
 @keyframes bus-face-breathe {
   50% {
     transform: scale(1.025, 1.035);
@@ -1423,23 +1616,6 @@ textarea:disabled {
 @keyframes target-hop-arc {
   50% {
     transform: translateX(-1.625rem);
-  }
-}
-
-@keyframes bus-pull-in {
-  0% {
-    transform: translateY(-50%) translateZ(0);
-    animation-timing-function: cubic-bezier(0.2, 0.8, 0.4, 1);
-  }
-
-  18% {
-    transform: translateY(-50%) translateZ(0) scale(1.12, 0.86);
-    animation-timing-function: cubic-bezier(0.55, 0, 0.75, 0.2);
-  }
-
-  100% {
-    transform: translateY(calc(-50% - var(--home-distance))) translateZ(0)
-      scale(0.5, 0.62);
   }
 }
 
@@ -1526,7 +1702,9 @@ textarea:disabled {
   .arrival-confidence-indicator,
   .arrival-timeline-group-backward,
   .arrival-timeline-row-flip .arrival-timeline-bus-marker,
-  .urgent-toast {
+  .toast,
+  .toast-urgent .bus-face,
+  .toast-badge-mark {
     animation: none;
   }
 
@@ -1545,7 +1723,6 @@ textarea:disabled {
   .bus-face-eye,
   .bus-face-gaze,
   .arrival-timeline-marker-body,
-  .arrival-timeline-marker-body::after,
   .arrival-walker {
     animation: none;
   }

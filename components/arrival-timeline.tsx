@@ -9,6 +9,7 @@ import {
   useState,
   type CSSProperties,
 } from "react";
+import { BusFace } from "@/components/bus-face";
 import { formatTransitName } from "@/lib/display";
 import type { VehicleConfidence } from "@/lib/vehicle-confidence";
 import { reachMinutes } from "@/lib/walking";
@@ -30,8 +31,8 @@ interface ArrivalTimelineProps {
   isUnavailable?: boolean;
   observedAt: string | null;
   onToggleRoute: (routeCode: string, lineId: string) => void;
-  /** Runs as your bus pulls into the stop while you're there. */
-  onTargetHome?: () => void;
+  /** Takes over your bus's circle, once its tag has merged in, to pull it into the stop. */
+  onTargetHome?: (bus: HTMLElement) => void;
   selectedRouteCodes: readonly string[];
   /** Your walk to the stop; undefined without a usable location. */
   walkSeconds?: number;
@@ -70,10 +71,8 @@ const LINE_ENTRANCE_END_MS = 860;
 const TAG_SLIDE_MAX_MS = 300;
 /** The tag tucks away (240ms) while the circle starts its 320ms pop at 180ms. */
 const DEPARTURE_MS = 500;
-/** The tag and indicator merge into the circle (240ms), then it jumps (460ms). */
-const HOMING_MS = 700;
-/** When the jumping circle reaches the stop marker. */
-const HOME_LANDING_MS = 650;
+/** The tag and indicator merge into the circle before it leaves for the stop. */
+const HOME_MERGE_MS = 240;
 /** The slowest pop (360ms) peaks at 180ms, then the slowest tag slides for 300ms. */
 const ARRIVAL_MS = 480;
 /** How long the target marker takes to hop from a missed bus to the next one. */
@@ -82,8 +81,6 @@ const TARGET_HOP_MS = 600;
 const CALLOUT_MS = 1_100;
 /** A "??" or "zZz" within this distance of the walker tucks under its circle. */
 const WALKER_CLEARANCE_PX = 30;
-/** Extra travel that carries a pulling-in bus under the stop card's edge. */
-const HOME_OVERSHOOT_PX = 28;
 
 export interface ArrivalEntranceTiming {
   delayMs: number;
@@ -114,39 +111,29 @@ interface TargetHop {
   to: number;
 }
 
-/** A front-on bus whose windscreen is a pair of eyes. */
-function BusFace() {
+/**
+ * Minutes, with only the changed digits dropping in: each digit is keyed by its
+ * place and value, so an unchanged one keeps its element and never replays.
+ */
+function EtaDigits({ previous, value }: { previous: number; value: number }) {
+  const digits = String(value);
+  const before = String(previous);
   return (
-    <svg aria-hidden="true" className="bus-face" viewBox="0 0 24 24">
-      <g
-        fill="none"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="1.8"
-      >
-        <rect height="18" rx="3.8" width="18.8" x="2.6" y="1.8" />
-        <path d="M6.5 22.2V20M17.5 22.2V20" />
-      </g>
-      <g className="bus-face-eyes">
-        {[8.5, 15.5].map((cx) => (
-          <g className="bus-face-eye" key={cx}>
-            <ellipse cx={cx} cy="9.2" fill="currentColor" rx="3.25" ry="3.75" />
-            <circle className="bus-face-pupil bus-face-gaze" cx={cx} cy="9.2" r="1.82" />
-          </g>
-        ))}
-      </g>
-      <path
-        className="bus-face-asleep"
-        d="M5.1 9q3.4 3.5 6.8 0M12.1 9q3.4 3.5 6.8 0"
-        fill="none"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeWidth="1.5"
-      />
-      <circle cx="6.9" cy="16.3" fill="currentColor" r="1" />
-      <circle cx="17.1" cy="16.3" fill="currentColor" r="1" />
-    </svg>
+    <>
+      {[...digits].map((digit, index) => {
+        const place = digits.length - 1 - index;
+        const changed = digit !== before[before.length - 1 - place];
+        return (
+          <span
+            className={`arrival-bus-eta-digit ${changed ? "arrival-bus-eta-drop" : ""}`}
+            key={`${place}:${digit}`}
+          >
+            {digit}
+          </span>
+        );
+      })}
+      <span className="arrival-bus-eta-unit">min</span>
+    </>
   );
 }
 
@@ -278,11 +265,9 @@ function ArrivalRow({
   // A bus that shows up mid-session pops in straight away, not on the reveal stagger.
   const delayShiftMs = motion === "arriving" ? timing.delayMs : 0;
   // Pass each stable schedule to CSS without changing row geometry.
-  const [shownEta, setShownEta] = useState(estimatedEta);
-  const [etaDrops, setEtaDrops] = useState(0);
-  if (shownEta !== estimatedEta) {
-    setShownEta(estimatedEta);
-    setEtaDrops((drops) => drops + 1);
+  const [eta, setEta] = useState({ value: estimatedEta, previous: estimatedEta });
+  if (eta.value !== estimatedEta) {
+    setEta({ value: estimatedEta, previous: eta.value });
   }
   const hash = (salt: number) => vehicleHash(arrival.vehicleKey, salt);
   const rowStyle = {
@@ -372,19 +357,13 @@ function ArrivalRow({
           }`}
           aria-hidden="true"
         >
-          {/* Remounts on each new minute so it drops in; never on first show. */}
-          <span
-            className={`arrival-bus-eta-value ${
-              etaDrops > 0 ? "arrival-bus-eta-drop" : ""
-            }`}
-            key={etaDrops}
-          >
-            {!isUnavailable && estimatedEta === 0 ? (
+          {!isUnavailable && estimatedEta === 0 ? (
+            <span className={eta.previous === 0 ? undefined : "arrival-bus-eta-drop"}>
               <SuccessCheckIcon />
-            ) : (
-              `${estimatedEta}m`
-            )}
-          </span>
+            </span>
+          ) : (
+            <EtaDigits previous={eta.previous} value={estimatedEta} />
+          )}
         </span>
         <button
           aria-label={`${
@@ -530,6 +509,7 @@ export function ArrivalTimeline({
   const previousKeysRef = useRef<ReadonlySet<string> | null>(null);
   const rowLayoutRef = useRef<ReadonlyMap<string, RowSnapshot>>(new Map());
   const motionTimersRef = useRef(new Set<number>());
+  const sectionRef = useRef<HTMLElement>(null);
   const selectedRoutes = useMemo(
     () => new Set(selectedRouteCodes),
     [selectedRouteCodes],
@@ -724,7 +704,14 @@ export function ArrivalTimeline({
         : [];
     });
     const homing = departed.some((row) => row.homing);
-    if (homing && onTargetHome) later(onTargetHome, HOME_LANDING_MS);
+    if (homing && onTargetHome) {
+      later(() => {
+        const bus = sectionRef.current?.querySelector<HTMLElement>(
+          ".arrival-timeline-row-homing .arrival-timeline-marker-face-enabled",
+        );
+        if (bus) onTargetHome(bus);
+      }, HOME_MERGE_MS);
+    }
     const arrived = entranceActive
       ? []
       : [...keys].filter((key) => !previousKeys.has(key));
@@ -739,7 +726,8 @@ export function ArrivalTimeline({
     if (departed.length > 0) {
       later(
         () => setDepartingRows((rows) => rows.filter((row) => !departed.includes(row))),
-        homing ? HOMING_MS : DEPARTURE_MS,
+        // A homing copy stays a moment past the handover so the circle never blinks out.
+        homing ? HOME_MERGE_MS + 100 : DEPARTURE_MS,
       );
     }
     if (arrived.length > 0) {
@@ -790,6 +778,7 @@ export function ArrivalTimeline({
   return (
     <section
       aria-label="Bus arrivals"
+      ref={sectionRef}
       className={`arrival-timeline-section ${
         entranceActive ? "arrival-timeline-section-entering" : ""
       } ${isUnavailable ? "arrival-timeline-section-unavailable" : ""}`}
@@ -937,9 +926,6 @@ export function ArrivalTimeline({
               style={{
                 top,
                 "--arrival-group-translate-y": "0px",
-                "--home-distance": `${
-                  top + timelineMetrics.rowHeight / 2 + HOME_OVERSHOOT_PX
-                }px`,
               } as CSSProperties}
             >
               <ArrivalRow

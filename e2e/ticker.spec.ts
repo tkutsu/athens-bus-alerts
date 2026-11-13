@@ -239,7 +239,7 @@ test("grays and freezes last-known arrivals and pauses predicted alerts during a
   await expect(warning).toHaveCSS("color", "rgb(23, 32, 27)");
   await expect(page.getByText("Last known arrivals", { exact: true })).toBeVisible();
   await expect(page.locator(".arrival-timeline-group").first()).toHaveCSS("filter", "grayscale(1)");
-  await expect(page.locator(".arrival-bus-eta")).toHaveText(["8m", "4m", "0m"]);
+  await expect(page.locator(".arrival-bus-eta")).toHaveText(["8min", "4min", "0min"]);
   await expect(page.locator(".arrival-confidence-questions")).toHaveCount(3);
   await expect(page.locator(".arrival-timeline-rail")).toBeHidden();
   const trackedGroup = page.locator(".arrival-timeline-group").filter({
@@ -322,7 +322,7 @@ test("grays and freezes last-known arrivals and pauses predicted alerts during a
   await expect(warning).toBeVisible();
   await page.clock.fastForward(300_000);
   await expect(trackedGroup).toHaveCSS("--timeline-position", position);
-  await expect(page.locator(".arrival-bus-eta")).toHaveText(["8m", "4m", "0m"]);
+  await expect(page.locator(".arrival-bus-eta")).toHaveText(["8min", "4min", "0min"]);
   await expect(page.locator(".arrival-confidence-questions")).toHaveCount(3);
   await expect(page.locator(".arrival-due-check")).toHaveCount(0);
   await expect(page.locator("html")).not.toHaveAttribute("data-notification-sent");
