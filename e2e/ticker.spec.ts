@@ -796,7 +796,7 @@ test("uses one progressive timeline with independent multi-line toggles", async 
     "background-color",
     "rgb(183, 187, 185)",
   );
-  // Selection rotates the orange enabled face into view.
+  // Selection flips the orange enabled face into view.
   const selectionFlip = await selectedBusMarker.evaluate((element) => {
     const flipper = element.querySelector<HTMLElement>(
       ".arrival-timeline-marker-flipper",
@@ -821,8 +821,8 @@ test("uses one progressive timeline with independent multi-line toggles", async 
   expect(selectionFlip).not.toBeNull();
   expect(selectionFlip!.transitionDuration).toBe("0.72s");
   expect(selectionFlip!.backgroundColor).toBe("rgb(229, 86, 47)");
-  expect(selectionFlip!.faceWidth).toBeCloseTo(38.4, 1);
-  expect(selectionFlip!.iconWidth).toBe(27);
+  expect(selectionFlip!.faceWidth).toBe(38);
+  expect(selectionFlip!.iconWidth).toBe(28);
   await expect
     .poll(() =>
       selectedBusMarker
