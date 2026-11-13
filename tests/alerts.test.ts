@@ -90,6 +90,44 @@ describe("evaluateSubscriptions", () => {
     expect(repeated.events.filter((event) => event.kind === "leave-now")).toEqual([]);
   });
 
+  it("skips a bus you can no longer walk to without alerting", () => {
+    const first = evaluateSubscriptions(
+      [subscription("218")],
+      [
+        { lineId: "218", vehicleKey: "2810:missed", minutes: 4, walkSeconds: 300 },
+        { lineId: "218", vehicleKey: "2810:next", minutes: 9, walkSeconds: 300 },
+      ],
+      NOW,
+    );
+    expect(first.subscriptions[0].trackedVehicleKey).toBe("2810:next");
+    expect(first.events).toEqual([]);
+
+    const tracking = subscription("218", {
+      trackedVehicleKey: "2810:slipped",
+      predictedZeroAt: new Date(NOW.getTime() + 60_000).toISOString(),
+      lastObservedMinutes: 1,
+    });
+    const handedOver = evaluateSubscriptions(
+      [tracking],
+      [
+        { lineId: "218", vehicleKey: "2810:slipped", minutes: 1, walkSeconds: 300 },
+        { lineId: "218", vehicleKey: "2810:next", minutes: 9, walkSeconds: 300 },
+      ],
+      NOW,
+    );
+    expect(handedOver.events).toEqual([]);
+    expect(handedOver.subscriptions[0].trackedVehicleKey).toBe("2810:next");
+  });
+
+  it("still warns about every bus once you're at the stop", () => {
+    const result = evaluateSubscriptions(
+      [subscription("218")],
+      [{ lineId: "218", vehicleKey: "2810:a", minutes: 1, walkSeconds: 30 }],
+      NOW,
+    );
+    expect(result.events.map((event) => event.kind)).toContain("one-minute");
+  });
+
   it("warns once and jumps directly to due-now without a warning", () => {
     const first = evaluateSubscriptions(
       [subscription("218")],
@@ -156,6 +194,25 @@ describe("evaluateSubscriptions", () => {
     );
     expect(repeated.events).toEqual([]);
     expect(repeated.subscriptions[0].trackedVehicleKey).toBe("2810:next");
+  });
+
+  it("calls a bus due as soon as it vanishes a minute out", () => {
+    const tracking = subscription("218", {
+      trackedVehicleKey: "2810:a",
+      predictedZeroAt: new Date(NOW.getTime() + 50_000).toISOString(),
+      lastObservedMinutes: 1,
+    });
+    const waiting = subscription("500", {
+      trackedVehicleKey: "5000:b",
+      predictedZeroAt: new Date(NOW.getTime() + 150_000).toISOString(),
+      lastObservedMinutes: 3,
+    });
+    const result = evaluateSubscriptions([tracking, waiting], [], NOW);
+
+    expect(result.events).toEqual([
+      { kind: "zero", lineId: "218", vehicleKey: "2810:a", minutes: 0 },
+    ]);
+    expect(result.subscriptions[1].trackedVehicleKey).toBe("5000:b");
   });
 
   it("uses a missing vehicle prediction but discards stale predictions", () => {

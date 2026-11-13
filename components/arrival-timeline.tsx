@@ -10,8 +10,8 @@ import {
   type CSSProperties,
 } from "react";
 import { formatTransitName } from "@/lib/display";
-import { Icon } from "@/components/icon";
 import type { VehicleConfidence } from "@/lib/vehicle-confidence";
+import { reachMinutes } from "@/lib/walking";
 
 export interface TimelineArrival {
   routeCode: string;
@@ -30,29 +30,60 @@ interface ArrivalTimelineProps {
   isUnavailable?: boolean;
   observedAt: string | null;
   onToggleRoute: (routeCode: string, lineId: string) => void;
+  /** Runs as your bus pulls into the stop while you're there. */
+  onTargetHome?: () => void;
   selectedRouteCodes: readonly string[];
+  /** Your walk to the stop; undefined without a usable location. */
+  walkSeconds?: number;
 }
 
-interface ArrivalSnapshot {
-  observedAtMs: number;
-  minutes: ReadonlyMap<string, number>;
+/** A bus's continuous ETA: `minutes` at `atMs`, counting down at `rate` per minute. */
+export interface EtaAnchor {
+  minutes: number;
+  atMs: number;
+  rate: number;
+}
+
+export interface EtaUpdate {
+  anchors: Map<string, EtaAnchor>;
+  /** Buses a fresh report moved clearly closer. */
+  forward: Set<string>;
+  /** Buses a fresh report moved clearly back, with the ETA shown before it. */
+  backward: Map<string, number>;
 }
 
 const TIMELINE_MAX_MINUTES = 20;
 const MAX_VISIBLE_BUSES = 10;
-const BUS_MARKER_SIZE_PX = 32;
-const TIMELINE_VERTICAL_INSET_PX = 92;
 const TIMELINE_TOP_INSET_PX = 20;
 const TIMELINE_BOTTOM_INSET_PX = 72;
 const TIMELINE_EDGE_PADDING_PX = 16;
 const CORRECTION_ANIMATION_MS = 1_050;
+/** A report this much sooner than shown jumps the bus forward. */
+const AHEAD_JUMP_MINUTES = 0.5;
+/** A bus may run this far ahead of its report at full speed. */
+const DRIFT_MINUTES = 0.5;
+/** Past this, a report further away than shown jumps the bus back. Repeats
+    alone never get there: a bus slows toward a stop as it nears this lead. */
+const BACKTRACK_MINUTES = 2;
 const LINE_ENTRANCE_START_MS = 280;
 const LINE_ENTRANCE_END_MS = 860;
 const TAG_SLIDE_MAX_MS = 300;
 /** The tag tucks away (240ms) while the circle starts its 320ms pop at 180ms. */
 const DEPARTURE_MS = 500;
+/** The tag and indicator merge into the circle (240ms), then it jumps (460ms). */
+const HOMING_MS = 700;
+/** When the jumping circle reaches the stop marker. */
+const HOME_LANDING_MS = 650;
 /** The slowest pop (360ms) peaks at 180ms, then the slowest tag slides for 300ms. */
 const ARRIVAL_MS = 480;
+/** How long the target marker takes to hop from a missed bus to the next one. */
+const TARGET_HOP_MS = 600;
+/** How long "Next one" floats above the new target after the hop lands. */
+const CALLOUT_MS = 1_100;
+/** A "??" or "zZz" within this distance of the walker tucks under its circle. */
+const WALKER_CLEARANCE_PX = 30;
+/** Extra travel that carries a pulling-in bus under the stop card's edge. */
+const HOME_OVERSHOOT_PX = 28;
 
 export interface ArrivalEntranceTiming {
   delayMs: number;
@@ -69,10 +100,71 @@ interface RowSnapshot {
   selected: boolean;
   muted: boolean;
   estimatedEta: number;
+  /** The soonest watched bus you can still make. */
+  target: boolean;
+  /** Too close to the stop for you to walk there in time. */
+  unreachable: boolean;
+  /** Its confidence indicator hides, out of reach or out of the walker's way. */
+  tucked: boolean;
 }
 
-function BusIcon() {
-  return <Icon name="bus" className="arrival-timeline-bus-icon" />;
+interface TargetHop {
+  toKey: string;
+  from: number;
+  to: number;
+}
+
+/** A front-on bus whose windscreen is a pair of eyes. */
+function BusFace() {
+  return (
+    <svg aria-hidden="true" className="bus-face" viewBox="0 0 24 24">
+      <g
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.8"
+      >
+        <rect height="18" rx="3.8" width="18.8" x="2.6" y="1.8" />
+        <path d="M6.5 22.2V20M17.5 22.2V20" />
+      </g>
+      <g className="bus-face-eyes">
+        {[8.5, 15.5].map((cx) => (
+          <g className="bus-face-eye" key={cx}>
+            <ellipse cx={cx} cy="9.2" fill="currentColor" rx="3.25" ry="3.75" />
+            <circle className="bus-face-pupil bus-face-gaze" cx={cx} cy="9.2" r="1.82" />
+          </g>
+        ))}
+      </g>
+      <path
+        className="bus-face-asleep"
+        d="M5.1 9q3.4 3.5 6.8 0M12.1 9q3.4 3.5 6.8 0"
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeWidth="1.5"
+      />
+      <circle cx="6.9" cy="16.3" fill="currentColor" r="1" />
+      <circle cx="17.1" cy="16.3" fill="currentColor" r="1" />
+    </svg>
+  );
+}
+
+function WalkerIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      fill="none"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="2.2"
+      viewBox="0 0 24 24"
+    >
+      <circle cx="13.5" cy="4" fill="currentColor" r="2" stroke="none" />
+      <path d="M12.5 8 10.5 14l-3 6M10.5 14l3.5 2.5.5 4M12 8.5 8.5 11M12.5 8.5l2.5 3" />
+    </svg>
+  );
 }
 
 function SuccessCheckIcon() {
@@ -120,18 +212,21 @@ function DirectionArrow() {
   );
 }
 
+/** A stable per-bus number, so each bus keeps its own rhythm across renders. */
+function vehicleHash(vehicleKey: string, salt: number): number {
+  let value = 2_166_136_261 ^ salt;
+  for (const character of vehicleKey) {
+    value ^= character.charCodeAt(0);
+    value = Math.imul(value, 16_777_619);
+  }
+  return value >>> 0;
+}
+
 /** Produces stable staggered timing without allowing entrances past the line draw. */
 export function arrivalEntranceTiming(
   vehicleKey: string,
 ): ArrivalEntranceTiming {
-  const hash = (salt: number) => {
-    let value = 2_166_136_261 ^ salt;
-    for (const character of vehicleKey) {
-      value ^= character.charCodeAt(0);
-      value = Math.imul(value, 16_777_619);
-    }
-    return value >>> 0;
-  };
+  const hash = (salt: number) => vehicleHash(vehicleKey, salt);
   const iconDurationMs = 260 + (hash(1) % 101);
   const latestStartMs = LINE_ENTRANCE_END_MS - iconDurationMs;
   const delayMs =
@@ -150,6 +245,7 @@ export function arrivalEntranceTiming(
 
 function ArrivalRow({
   arrival,
+  callout = false,
   estimatedEta,
   flippedBack = false,
   isUnavailable,
@@ -157,10 +253,15 @@ function ArrivalRow({
   muted,
   onToggleRoute,
   selected,
+  target,
+  tucked,
+  unreachable,
 }: Omit<RowSnapshot, "top"> & {
+  /** Briefly labels a bus the target has just hopped to. */
+  callout?: boolean;
   flippedBack?: boolean;
   isUnavailable: boolean;
-  motion?: "arriving" | "departing";
+  motion?: "arriving" | "departing" | "homing";
   onToggleRoute: (routeCode: string, lineId: string) => void;
 }) {
   const timingLabel = isUnavailable
@@ -177,7 +278,19 @@ function ArrivalRow({
   // A bus that shows up mid-session pops in straight away, not on the reveal stagger.
   const delayShiftMs = motion === "arriving" ? timing.delayMs : 0;
   // Pass each stable schedule to CSS without changing row geometry.
+  const [shownEta, setShownEta] = useState(estimatedEta);
+  const [etaDrops, setEtaDrops] = useState(0);
+  if (shownEta !== estimatedEta) {
+    setShownEta(estimatedEta);
+    setEtaDrops((drops) => drops + 1);
+  }
+  const hash = (salt: number) => vehicleHash(arrival.vehicleKey, salt);
   const rowStyle = {
+    // Each face blinks and glances on its own beat.
+    "--bus-blink-period": `${2_700 + (hash(5) % 1_800)}ms`,
+    "--bus-blink-delay": `-${hash(6) % 4_500}ms`,
+    "--bus-glance-delay": `-${hash(7) % 5_200}ms`,
+    "--bus-glance-x": `${hash(8) % 2 ? 0.5 : -0.5}px`,
     "--arrival-enter-delay": `${timing.delayMs - delayShiftMs}ms`,
     "--arrival-icon-duration": `${timing.iconDurationMs}ms`,
     "--arrival-pop-scale": timing.overshootScale,
@@ -188,14 +301,24 @@ function ArrivalRow({
   // Keep the tag mounted so only the marker flips on correction.
   return (
     <div
-      className={`arrival-timeline-row ${
-        flippedBack ? "arrival-timeline-row-flip" : ""
-      } ${motion ? `arrival-timeline-row-${motion}` : ""}`}
+      className={[
+        "arrival-timeline-row",
+        flippedBack && "arrival-timeline-row-flip",
+        motion && `arrival-timeline-row-${motion}`,
+        target && "arrival-timeline-row-target",
+        unreachable && "arrival-timeline-row-unreachable",
+        uncertain ? "arrival-timeline-row-confused" : slipping && "arrival-timeline-row-sleepy",
+      ].filter(Boolean).join(" ")}
       style={rowStyle}
     >
       {(uncertain || slipping) && (
         // Outside the marker so it slides from under the circle instead of popping with it.
-        <span aria-hidden="true" className="arrival-confidence-indicator">
+        <span
+          aria-hidden="true"
+          className={`arrival-confidence-indicator ${
+            tucked ? "arrival-confidence-tucked" : ""
+          }`}
+        >
           {uncertain ? (
             <span className="arrival-confidence-questions">??</span>
           ) : (
@@ -212,7 +335,7 @@ function ArrivalRow({
             : slipping
               ? ", ETA has slipped significantly"
               : ""
-        }`}
+        }${unreachable ? ", too soon to reach on foot" : ""}`}
         aria-pressed={selected}
         className={`arrival-timeline-bus-marker ${
           selected
@@ -225,18 +348,23 @@ function ArrivalRow({
         title={`${selected ? "Disable" : "Enable"} line ${lineName}`}
         type="button"
       >
-        <span
-          aria-hidden="true"
-          className="arrival-timeline-marker-flipper"
-        >
-          <span className="arrival-timeline-marker-face arrival-timeline-marker-face-disabled">
-            <BusIcon />
-          </span>
-          <span className="arrival-timeline-marker-face arrival-timeline-marker-face-enabled">
-            <BusIcon />
+        {/* Moods move the body, leaving the button's position and the flip alone. */}
+        <span aria-hidden="true" className="arrival-timeline-marker-body">
+          <span className="arrival-timeline-marker-flipper">
+            <span className="arrival-timeline-marker-face arrival-timeline-marker-face-disabled">
+              <BusFace />
+            </span>
+            <span className="arrival-timeline-marker-face arrival-timeline-marker-face-enabled">
+              <BusFace />
+            </span>
           </span>
         </span>
       </button>
+      {callout && (
+        <span aria-hidden="true" className="arrival-target-callout">
+          Next one
+        </span>
+      )}
       <span className="arrival-tag">
         <span
           className={`arrival-bus-eta ${
@@ -244,11 +372,19 @@ function ArrivalRow({
           }`}
           aria-hidden="true"
         >
-          {!isUnavailable && estimatedEta === 0 ? (
-            <SuccessCheckIcon />
-          ) : (
-            `${estimatedEta}m`
-          )}
+          {/* Remounts on each new minute so it drops in; never on first show. */}
+          <span
+            className={`arrival-bus-eta-value ${
+              etaDrops > 0 ? "arrival-bus-eta-drop" : ""
+            }`}
+            key={etaDrops}
+          >
+            {!isUnavailable && estimatedEta === 0 ? (
+              <SuccessCheckIcon />
+            ) : (
+              `${estimatedEta}m`
+            )}
+          </span>
         </span>
         <button
           aria-label={`${
@@ -277,19 +413,64 @@ function ArrivalRow({
   );
 }
 
-/** Maps one minute of elapsed time to exactly one minute of rail travel. */
-export function timelinePositionPercent(
-  reportedMinutes: number,
-  observedAtMs: number,
-  nowMs: number,
-): number {
-  const elapsedMinutes = Math.max(0, nowMs - observedAtMs) / 60_000;
-  const estimatedMinutes = Math.max(0, reportedMinutes - elapsedMinutes);
+/** Places an ETA on the rail, one twentieth of it per minute. */
+export function timelinePositionPercent(minutes: number): number {
   return (
-    (Math.min(TIMELINE_MAX_MINUTES, estimatedMinutes) /
+    (Math.min(TIMELINE_MAX_MINUTES, Math.max(0, minutes)) /
       TIMELINE_MAX_MINUTES) *
     100
   );
+}
+
+/** A bus's ETA where it was last anchored, counting down at its anchored rate. */
+export function anchorMinutes(anchor: EtaAnchor, nowMs: number): number {
+  const elapsedMinutes = Math.max(0, nowMs - anchor.atMs) / 60_000;
+  return Math.max(0, anchor.minutes - anchor.rate * elapsedMinutes);
+}
+
+/**
+ * Folds a snapshot into each bus's running estimate. OASA reports whole
+ * minutes and often repeats one for several polls, so a bus keeps rolling
+ * toward the stop through a repeat, eases off the further it runs ahead of
+ * the report, and only jumps for a clear correction either way.
+ */
+export function updateEtaAnchors(
+  previous: ReadonlyMap<string, EtaAnchor>,
+  arrivals: readonly Pick<TimelineArrival, "vehicleKey" | "minutes">[],
+  observedAtMs: number,
+): EtaUpdate {
+  const anchors = new Map<string, EtaAnchor>();
+  const forward = new Set<string>();
+  const backward = new Map<string, number>();
+  for (const { vehicleKey, minutes } of arrivals) {
+    const fresh = { minutes, atMs: observedAtMs, rate: 1 };
+    const old = previous.get(vehicleKey);
+    if (!old) {
+      anchors.set(vehicleKey, fresh);
+      continue;
+    }
+    const shown = anchorMinutes(old, observedAtMs);
+    const lag = minutes - shown;
+    // Beyond the 20-minute edge a jump has nothing to animate.
+    const visibleLag =
+      Math.min(TIMELINE_MAX_MINUTES, minutes) -
+      Math.min(TIMELINE_MAX_MINUTES, shown);
+    if (lag < -AHEAD_JUMP_MINUTES) {
+      anchors.set(vehicleKey, fresh);
+      if (visibleLag < 0) forward.add(vehicleKey);
+    } else if (lag > BACKTRACK_MINUTES) {
+      anchors.set(vehicleKey, fresh);
+      if (visibleLag > 0) backward.set(vehicleKey, shown);
+    } else {
+      const overrun = Math.max(0, lag - DRIFT_MINUTES);
+      anchors.set(vehicleKey, {
+        minutes: shown,
+        atMs: observedAtMs,
+        rate: Math.max(0, 1 - overrun / (BACKTRACK_MINUTES - DRIFT_MINUTES)),
+      });
+    }
+  }
+  return { anchors, forward, backward };
 }
 
 /** Converts a rail percentage to the clamped pixel position used by CSS. */
@@ -304,56 +485,6 @@ function timelineTopPixels(position: number, timelineHeight: number): number {
   );
 }
 
-/** Finds physical buses whose fresh ETA moved farther from the stop. */
-export function backwardJumpVehicleKeys(
-  previousMinutes: ReadonlyMap<string, number>,
-  arrivals: readonly TimelineArrival[],
-  elapsedMinutes = 0,
-  minimumVisualMinutes = 0,
-): Set<string> {
-  return new Set(
-    arrivals
-      .filter((arrival) => {
-        const previous = previousMinutes.get(arrival.vehicleKey);
-        if (previous === undefined) return false;
-        const expectedMinutes = Math.max(
-          0,
-          previous - elapsedMinutes,
-        );
-        const visualDistanceMinutes =
-          Math.min(TIMELINE_MAX_MINUTES, arrival.minutes) -
-          Math.min(TIMELINE_MAX_MINUTES, expectedMinutes);
-        return (
-          visualDistanceMinutes > 0.05 &&
-          visualDistanceMinutes >= minimumVisualMinutes
-        );
-      })
-      .map((arrival) => arrival.vehicleKey),
-  );
-}
-
-/** Finds physical buses whose fresh ETA moved closer than the animated estimate. */
-export function forwardJumpVehicleKeys(
-  previousMinutes: ReadonlyMap<string, number>,
-  arrivals: readonly TimelineArrival[],
-  elapsedMinutes = 0,
-): Set<string> {
-  return new Set(
-    arrivals
-      .filter((arrival) => {
-        const previous = previousMinutes.get(arrival.vehicleKey);
-        if (previous === undefined) return false;
-        const expectedMinutes = Math.max(0, previous - elapsedMinutes);
-        return (
-          Math.min(TIMELINE_MAX_MINUTES, expectedMinutes) -
-            Math.min(TIMELINE_MAX_MINUTES, arrival.minutes) >
-          0.05
-        );
-      })
-      .map((arrival) => arrival.vehicleKey),
-  );
-}
-
 /** Renders the ten soonest physical buses on one ETA-scaled vertical rail. */
 export function ArrivalTimeline({
   arrivals,
@@ -361,7 +492,9 @@ export function ArrivalTimeline({
   isUnavailable = false,
   observedAt,
   onToggleRoute,
+  onTargetHome,
   selectedRouteCodes,
+  walkSeconds,
 }: ArrivalTimelineProps) {
   const [now, setNow] = useState(() => Date.now());
   const [timelineMetrics, setTimelineMetrics] = useState({
@@ -370,14 +503,27 @@ export function ArrivalTimeline({
     gap: 4,
   });
   const timelineHeight = timelineMetrics.height;
-  const [previousSnapshot, setPreviousSnapshot] =
-    useState<ArrivalSnapshot | null>(null);
   const timelineObserverRef = useRef<ResizeObserver | null>(null);
-  const [settledObservedAt, setSettledObservedAt] = useState<string | null>(
-    null,
-  );
+  const observedAtMs = observedAt ? new Date(observedAt).getTime() : now;
+  // Fold each new snapshot into the running estimates before anything renders.
+  const [estimates, setEstimates] = useState<
+    EtaUpdate & { source: readonly TimelineArrival[] | null; id: number }
+  >({ anchors: new Map(), forward: new Set(), backward: new Map(), source: null, id: 0 });
+  if (estimates.source !== arrivals && !isUnavailable) {
+    setEstimates({
+      ...updateEtaAnchors(estimates.anchors, arrivals, observedAtMs),
+      source: arrivals,
+      id: estimates.id + 1,
+    });
+  }
+  const [settledEstimateId, setSettledEstimateId] = useState(0);
   const [entranceActive, setEntranceActive] = useState(true);
-  const [departingRows, setDepartingRows] = useState<RowSnapshot[]>([]);
+  const [departingRows, setDepartingRows] = useState<
+    Array<RowSnapshot & { homing: boolean }>
+  >([]);
+  const [targetHop, setTargetHop] = useState<TargetHop | null>(null);
+  const [calloutKey, setCalloutKey] = useState<string | null>(null);
+  const previousTargetRef = useRef<string | null>(null);
   const [arrivingKeys, setArrivingKeys] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
@@ -400,6 +546,14 @@ export function ArrivalTimeline({
     const interval = window.setInterval(() => setNow(Date.now()), 250);
     return () => window.clearInterval(interval);
   }, [isUnavailable]);
+
+  const later = useCallback((callback: () => void, delayMs: number) => {
+    const timer = window.setTimeout(() => {
+      motionTimersRef.current.delete(timer);
+      callback();
+    }, delayMs);
+    motionTimersRef.current.add(timer);
+  }, []);
 
   useEffect(() => {
     // Scope entrance animations to the line-mode reveal so corrections cannot replay them.
@@ -433,52 +587,23 @@ export function ArrivalTimeline({
     timelineObserverRef.current = observer;
   }, []);
 
-  const corrections = useMemo(() => {
-    if (!observedAt || !previousSnapshot) {
-      return { backward: new Set<string>(), forward: new Set<string>() };
-    }
-    const observedAtMs = new Date(observedAt).getTime();
-    const snapshotElapsedMinutes =
-      Math.max(0, observedAtMs - previousSnapshot.observedAtMs) / 60_000;
-    const railTravelPx = Math.max(
-      0,
-      timelineHeight - TIMELINE_VERTICAL_INSET_PX,
-    );
-    const markerLengthMinutes =
-      railTravelPx > 0
-        ? (BUS_MARKER_SIZE_PX / railTravelPx) * TIMELINE_MAX_MINUTES
-        : Number.POSITIVE_INFINITY;
-    return {
-      backward: backwardJumpVehicleKeys(
-        previousSnapshot.minutes,
-        arrivals,
-        snapshotElapsedMinutes,
-        markerLengthMinutes,
-      ),
-      forward: forwardJumpVehicleKeys(
-        previousSnapshot.minutes,
-        arrivals,
-        snapshotElapsedMinutes,
-      ),
-    };
-  }, [arrivals, observedAt, previousSnapshot, timelineHeight]);
-
+  // Correction animations run once per snapshot, then the buses glide again.
   useEffect(() => {
-    if (!observedAt) return;
-    const timeout = window.setTimeout(() => {
-      setPreviousSnapshot({
-        observedAtMs: new Date(observedAt).getTime(),
-        minutes: new Map(
-          arrivals.map((arrival) => [arrival.vehicleKey, arrival.minutes]),
-        ),
-      });
-      setSettledObservedAt(observedAt);
-    }, CORRECTION_ANIMATION_MS);
+    const timeout = window.setTimeout(
+      () => setSettledEstimateId(estimates.id),
+      CORRECTION_ANIMATION_MS,
+    );
     return () => window.clearTimeout(timeout);
-  }, [arrivals, observedAt]);
+  }, [estimates.id]);
+  const correctionActive = !isUnavailable && estimates.id !== settledEstimateId;
 
-  const observedAtMs = observedAt ? new Date(observedAt).getTime() : now;
-  const elapsedMinutes = isUnavailable ? 0 : Math.max(0, (now - observedAtMs) / 60_000);
+  /** Where a bus is now; frozen at its last report while the feed is down. */
+  const shownMinutes = (arrival: TimelineArrival) => {
+    const anchor = estimates.anchors.get(arrival.vehicleKey);
+    return isUnavailable || !anchor
+      ? arrival.minutes
+      : anchorMinutes(anchor, now);
+  };
   const groups = useMemo(() => {
     const grouped = new Map<number, TimelineArrival[]>();
     for (const arrival of visibleArrivals) {
@@ -524,11 +649,7 @@ export function ArrivalTimeline({
     const position =
       group.minutes >= TIMELINE_MAX_MINUTES
         ? 100
-        : timelinePositionPercent(
-            group.minutes,
-            observedAtMs,
-            isUnavailable ? observedAtMs : now,
-          );
+        : timelinePositionPercent(shownMinutes(group.orderedItems[0]));
     const desiredTop = group.minutes >= TIMELINE_MAX_MINUTES
       ? layoutHeight - TIMELINE_EDGE_PADDING_PX - groupHeights[index]
       : timelineTopPixels(position, layoutHeight) - groupHeights[index] / 2;
@@ -541,18 +662,48 @@ export function ArrivalTimeline({
     groupTops[index] = Math.max(groupTops[index], previousBottom);
     previousBottom = groupTops[index] + groupHeights[index] + timelineMetrics.gap;
   }
+  // You sit on the rail at your walking time; buses between you and the stop
+  // are out of reach, and the soonest watched bus beyond you is your target.
+  const reach = isUnavailable ? 0 : reachMinutes(walkSeconds);
+  const showWalker = !isUnavailable && walkSeconds !== undefined;
+  const walkerTop = reach > 0
+    ? timelineTopPixels(
+        (Math.min(TIMELINE_MAX_MINUTES, reach) / TIMELINE_MAX_MINUTES) * 100,
+        layoutHeight,
+      )
+    : 0;
+  const isUnreachable = (arrival: TimelineArrival) =>
+    shownMinutes(arrival) < reach;
+  const targetKey = isUnavailable
+    ? null
+    : visibleArrivals.find(
+        (arrival) =>
+          selectedRoutes.has(arrival.routeCode) && !isUnreachable(arrival),
+      )?.vehicleKey ?? null;
   const rowLayout = new Map<string, RowSnapshot>();
   groups.forEach((group, groupIndex) => {
     group.orderedItems.forEach((arrival, rowIndex) => {
       const selected = selectedRoutes.has(arrival.routeCode);
+      const top =
+        groupTops[groupIndex] +
+        rowIndex * (timelineMetrics.rowHeight + timelineMetrics.gap);
+      const unreachable = isUnreachable(arrival);
       rowLayout.set(arrival.vehicleKey, {
         arrival,
-        top:
-          groupTops[groupIndex] +
-          rowIndex * (timelineMetrics.rowHeight + timelineMetrics.gap),
+        top,
         selected,
         muted: selectedRoutes.size > 0 && !selected,
-        estimatedEta: Math.max(0, Math.ceil(arrival.minutes - elapsedMinutes)),
+        estimatedEta: Math.ceil(shownMinutes(arrival)),
+        // The target only lights up once the hop marker lands on it.
+        target:
+          arrival.vehicleKey === targetKey &&
+          targetHop?.toKey !== arrival.vehicleKey,
+        unreachable,
+        tucked:
+          unreachable ||
+          (reach > 0 &&
+            Math.abs(top + timelineMetrics.rowHeight / 2 - walkerTop) <
+              WALKER_CLEARANCE_PX),
       });
     });
   });
@@ -565,17 +716,15 @@ export function ArrivalTimeline({
     previousKeysRef.current = keys;
     if (!previousKeys || isUnavailable || isLoading) return;
 
-    const later = (callback: () => void, delayMs: number) => {
-      const timer = window.setTimeout(() => {
-        motionTimersRef.current.delete(timer);
-        callback();
-      }, delayMs);
-      motionTimersRef.current.add(timer);
-    };
     const departed = [...previousKeys].flatMap((key) => {
       const row = keys.has(key) ? undefined : rowLayoutRef.current.get(key);
-      return row ? [row] : [];
+      // Your bus pulls into the stop when you're there to meet it.
+      return row
+        ? [{ ...row, homing: row.target && reach === 0 && row.estimatedEta <= 1 }]
+        : [];
     });
+    const homing = departed.some((row) => row.homing);
+    if (homing && onTargetHome) later(onTargetHome, HOME_LANDING_MS);
     const arrived = entranceActive
       ? []
       : [...keys].filter((key) => !previousKeys.has(key));
@@ -590,7 +739,7 @@ export function ArrivalTimeline({
     if (departed.length > 0) {
       later(
         () => setDepartingRows((rows) => rows.filter((row) => !departed.includes(row))),
-        DEPARTURE_MS,
+        homing ? HOMING_MS : DEPARTURE_MS,
       );
     }
     if (arrived.length > 0) {
@@ -601,11 +750,42 @@ export function ArrivalTimeline({
         ARRIVAL_MS,
       );
     }
-  }, [entranceActive, isLoading, isUnavailable, visibleArrivals]);
+  }, [
+    entranceActive,
+    isLoading,
+    isUnavailable,
+    later,
+    onTargetHome,
+    reach,
+    visibleArrivals,
+  ]);
 
   useLayoutEffect(() => {
     rowLayoutRef.current = rowLayout;
   });
+
+  // When the target changes while both buses are on the rail, a marker hops
+  // from the old one to the new one, so a missed bus hands over visibly.
+  useLayoutEffect(() => {
+    const previous = previousTargetRef.current;
+    previousTargetRef.current = targetKey;
+    if (!previous || !targetKey || previous === targetKey || entranceActive) {
+      return;
+    }
+    const from = rowLayoutRef.current.get(previous);
+    const to = rowLayoutRef.current.get(targetKey);
+    if (!from || !to) return;
+    const centre = timelineMetrics.rowHeight / 2;
+    setTargetHop({ toKey: targetKey, from: from.top + centre, to: to.top + centre });
+    later(() => {
+      setTargetHop((hop) => (hop?.toKey === targetKey ? null : hop));
+      setCalloutKey(targetKey);
+    }, TARGET_HOP_MS);
+    later(
+      () => setCalloutKey((key) => (key === targetKey ? null : key)),
+      TARGET_HOP_MS + CALLOUT_MS,
+    );
+  }, [entranceActive, later, targetKey, timelineMetrics.rowHeight]);
 
   return (
     <section
@@ -619,11 +799,18 @@ export function ArrivalTimeline({
         <p className="arrival-last-known text-xs font-semibold text-ink/70">Last known arrivals</p>
       )}
       {isUnavailable && arrivals.length === 0 ? (
-        <p className="arrival-timeline-empty">Couldn&apos;t load live arrivals.</p>
+        <p className="arrival-timeline-empty">Reconnecting…</p>
       ) : isLoading && arrivals.length === 0 ? (
         <p className="empty-copy mt-5">Loading live arrivals...</p>
       ) : arrivals.length === 0 && departingRows.length === 0 ? (
-        <p className="arrival-timeline-empty">no bus found :(</p>
+        <p className="arrival-timeline-empty arrival-timeline-quiet">
+          <span aria-hidden="true" className="arrival-timeline-row-sleepy">
+            <span className="arrival-timeline-marker-body arrival-quiet-face">
+              <BusFace />
+            </span>
+          </span>
+          All quiet
+        </p>
       ) : (
         <div
           className="arrival-timeline"
@@ -631,55 +818,70 @@ export function ArrivalTimeline({
           style={{ minHeight: minimumHeight }}
         >
           <div aria-hidden="true" className="arrival-timeline-rail" />
+          {showWalker && (
+            <div
+              aria-label={
+                reach > 0
+                  ? `You, about ${Math.round(walkSeconds / 60)} min walk from the stop`
+                  : "You, at the stop"
+              }
+              className={`arrival-walker ${reach > 0 ? "" : "arrival-walker-home"}`}
+              role="img"
+              style={{ top: walkerTop }}
+            >
+              <span className="arrival-walker-line" />
+              <span className="arrival-walker-badge">
+                <WalkerIcon />
+              </span>
+            </div>
+          )}
+          {targetHop && (
+            <span
+              aria-hidden="true"
+              className="arrival-target-hop"
+              key={targetHop.toKey}
+              style={{
+                "--hop-from": `${targetHop.from}px`,
+                "--hop-to": `${targetHop.to}px`,
+              } as CSSProperties}
+            />
+          )}
 
           {groups.map((group, groupIndex) => {
             const atCutoff = group.minutes >= TIMELINE_MAX_MINUTES;
             const position = atCutoff
               ? 100
-              : timelinePositionPercent(
-                  group.minutes,
-                  observedAtMs,
-                  isUnavailable ? observedAtMs : now,
-                );
+              : timelinePositionPercent(shownMinutes(group.orderedItems[0]));
             const style = {
               "--timeline-position": `${position}%`,
             } as CSSProperties;
-            const correctionActive = !isUnavailable && observedAt !== settledObservedAt;
             const movingBackward =
               !atCutoff &&
               correctionActive &&
               group.items.some((arrival) =>
-                corrections.backward.has(arrival.vehicleKey),
+                estimates.backward.has(arrival.vehicleKey),
               );
             const movingForward =
               !atCutoff &&
               correctionActive &&
               !movingBackward &&
               group.items.some((arrival) =>
-                corrections.forward.has(arrival.vehicleKey),
+                estimates.forward.has(arrival.vehicleKey),
               );
             const backwardArrival = movingBackward
               ? group.items.find((arrival) =>
-                  corrections.backward.has(arrival.vehicleKey),
+                  estimates.backward.has(arrival.vehicleKey),
                 )
               : undefined;
             const previousMinutes = backwardArrival
-              ? previousSnapshot?.minutes.get(backwardArrival.vehicleKey)
+              ? estimates.backward.get(backwardArrival.vehicleKey)
               : undefined;
             const previousPosition =
-              previousMinutes !== undefined && previousSnapshot && observedAt
-                ? timelinePositionPercent(
-                    previousMinutes,
-                    previousSnapshot.observedAtMs,
-                    observedAtMs,
-                  )
+              previousMinutes !== undefined
+                ? timelinePositionPercent(previousMinutes)
                 : position;
-            const correctedPosition = observedAt
-              ? timelinePositionPercent(
-                  group.minutes,
-                  observedAtMs,
-                  observedAtMs,
-                )
+            const correctedPosition = backwardArrival
+              ? timelinePositionPercent(backwardArrival.minutes)
               : position;
             const backwardOffset =
               timelineTopPixels(previousPosition, timelineHeight) -
@@ -711,10 +913,11 @@ export function ArrivalTimeline({
                 {group.orderedItems.map((arrival) => (
                   <ArrivalRow
                     {...rowLayout.get(arrival.vehicleKey)!}
+                    callout={calloutKey === arrival.vehicleKey}
                     flippedBack={
                       !isUnavailable && !atCutoff &&
                       correctionActive &&
-                      corrections.backward.has(arrival.vehicleKey)
+                      estimates.backward.has(arrival.vehicleKey)
                     }
                     isUnavailable={isUnavailable}
                     key={arrival.vehicleKey}
@@ -726,17 +929,23 @@ export function ArrivalTimeline({
             );
           })}
 
-          {departingRows.map(({ top, ...row }) => (
+          {departingRows.map(({ top, homing, ...row }) => (
             <div
               className="arrival-timeline-group arrival-timeline-group-departing"
               inert
               key={row.arrival.vehicleKey}
-              style={{ top, "--arrival-group-translate-y": "0px" } as CSSProperties}
+              style={{
+                top,
+                "--arrival-group-translate-y": "0px",
+                "--home-distance": `${
+                  top + timelineMetrics.rowHeight / 2 + HOME_OVERSHOOT_PX
+                }px`,
+              } as CSSProperties}
             >
               <ArrivalRow
                 {...row}
                 isUnavailable={false}
-                motion="departing"
+                motion={homing ? "homing" : "departing"}
                 onToggleRoute={onToggleRoute}
               />
             </div>

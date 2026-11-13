@@ -1,4 +1,6 @@
 import type { LineSubscription, RecentVehicle } from "@/lib/types";
+import { ARRIVED_IF_MISSING_MINUTES } from "@/lib/vehicle-confidence";
+import { canReachBus } from "@/lib/walking";
 
 export interface CandidateArrival {
   lineId: string;
@@ -126,7 +128,7 @@ export function evaluateSubscriptions(
     const recentKeys = new Set(
       subscription.recentVehicles.map((vehicle) => vehicle.key),
     );
-    const candidates = arrivals
+    const lineArrivals = arrivals
       .filter(
         (arrival) =>
           arrival.lineId === subscription.lineId &&
@@ -135,6 +137,9 @@ export function evaluateSubscriptions(
           !recentKeys.has(arrival.vehicleKey),
       )
       .sort((a, b) => a.minutes - b.minutes);
+    const candidates = lineArrivals.filter((arrival) =>
+      canReachBus(arrival.minutes, arrival.walkSeconds),
+    );
 
     if (!subscription.trackedVehicleKey) {
       const preserveWarning = subscription.lastObservedMinutes !== null;
@@ -152,6 +157,14 @@ export function evaluateSubscriptions(
     const tracked = candidates.find(
       (arrival) => arrival.vehicleKey === trackedVehicleKey,
     );
+
+    // A bus you can no longer walk to in time hands over to the next one silently.
+    if (
+      !tracked &&
+      lineArrivals.some((arrival) => arrival.vehicleKey === trackedVehicleKey)
+    ) {
+      return completeTrackedVehicle(subscription, candidates, now);
+    }
 
     if (!tracked) {
       const leaveAt = subscription.predictedLeaveAt
@@ -175,7 +188,11 @@ export function evaluateSubscriptions(
       }
 
       const predictedAt = new Date(subscription.predictedZeroAt).getTime();
-      if (predictedAt > now.getTime()) return subscription;
+      // A bus that vanishes a minute out has arrived, so say so as it leaves the timeline.
+      const arrived =
+        subscription.lastObservedMinutes !== null &&
+        subscription.lastObservedMinutes <= ARRIVED_IF_MISSING_MINUTES;
+      if (predictedAt > now.getTime() && !arrived) return subscription;
 
       const lateness = now.getTime() - predictedAt;
       if (lateness <= STALE_PREDICTION_GRACE_MS) {
