@@ -452,7 +452,8 @@ export function TickerApp() {
         const options = {
           body,
           icon: "/icon-192.png",
-          badge: "/icon-192.png",
+          // Android draws badges from alpha alone, so this is a bare bus outline.
+          badge: "/badge-96.png",
           tag: `line-${stop.code}-${event.lineId}-${event.vehicleKey}`,
           renotify: true,
           requireInteraction: dueNow || leaveNow,
