@@ -29,7 +29,7 @@ export function haversineMeters(
 
 export function formatDistance(distanceMeters: number): string {
   if (distanceMeters < 1_000) {
-    return `${distanceMeters} m`;
+    return `${distanceMeters} ${distanceMeters === 1 ? "meter" : "meters"}`;
   }
 
   return `${(distanceMeters / 1_000).toFixed(1)} km`;

@@ -18,6 +18,7 @@ import {
   writeStoredState,
 } from "@/lib/storage";
 import { FavoritesDialog } from "@/components/favorites-dialog";
+import { pullIntoStop } from "@/components/pull-in";
 import { Icon } from "@/components/icon";
 import { ThemeSwitch } from "@/components/theme-switch";
 import { Toast } from "@/components/toast";
@@ -395,32 +396,10 @@ export function TickerApp() {
     [selectedStop, userLocation],
   );
 
-  // The stop marker squashes as your bus pulls in, with one ring for the stop.
+  // Your bus pulls into the stop marker while you're there to meet it.
   const stopMarkerRef = useRef<HTMLSpanElement>(null);
-  const welcomeBus = useCallback(() => {
-    const marker = stopMarkerRef.current;
-    if (!marker || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      return;
-    }
-    // The timeline calls this as the bus lands, so the squash starts at once.
-    const timing = { duration: 560, easing: "ease-out" };
-    marker.animate(
-      [
-        { transform: "scale(1)" },
-        { transform: "scale(1.35, 0.7)", offset: 0.15 },
-        { transform: "scale(0.9, 1.12)", offset: 0.45 },
-        { transform: "scale(1.04, 0.97)", offset: 0.7 },
-        { transform: "scale(1)" },
-      ],
-      timing,
-    );
-    marker.animate(
-      [
-        { boxShadow: "0 0 0 3px var(--paper), 0 0 0 3px rgb(var(--signal-rgb) / 0.6)" },
-        { boxShadow: "0 0 0 3px var(--paper), 0 0 0 16px rgb(var(--signal-rgb) / 0)" },
-      ],
-      timing,
-    );
+  const welcomeBus = useCallback((bus: HTMLElement) => {
+    if (stopMarkerRef.current) pullIntoStop(bus, stopMarkerRef.current);
   }, []);
 
   const candidates = useMemo<CandidateArrival[]>(() => {

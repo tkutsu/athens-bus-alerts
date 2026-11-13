@@ -118,7 +118,8 @@ export function useDeviceLocation({
           if (locationError.code === 1) locationDeniedRef.current = true;
         },
         {
-          enableHighAccuracy: false,
+          // Walking time needs GPS-grade fixes; network positions are too coarse to use.
+          enableHighAccuracy: true,
           maximumAge: 20_000,
           timeout: 10_000,
         },

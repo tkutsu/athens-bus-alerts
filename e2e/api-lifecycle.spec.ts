@@ -265,7 +265,7 @@ test("watches location and keeps a restored stop distance current", async ({
     name: /first stop.*change/i,
   });
   await expect(stopTab).toBeVisible();
-  await expect(stopTab).not.toContainText("0 m away");
+  await expect(stopTab).not.toContainText("0 meters away");
   await expect(page.getByText(/getting location/i)).toHaveCount(0);
   await expect
     .poll(() => page.evaluate(() => window.__locationWatchCalls))
@@ -278,7 +278,7 @@ test("watches location and keeps a restored stop distance current", async ({
       longitude: STOPS[1].longitude,
     },
   );
-  await expect(stopTab).toContainText(/[1-9]\d* m away/);
+  await expect(stopTab).toContainText(/[1-9]\d* meters? away/);
   await stopTab.click();
   await expectUserMarkerCentered(page);
 
