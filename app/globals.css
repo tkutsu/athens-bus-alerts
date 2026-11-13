@@ -404,11 +404,11 @@ textarea:disabled {
   align-items: center;
   gap: 0.75rem;
   margin-inline: auto;
+  /* Clips the countdown bar to the rounded bottom edge. */
   overflow: hidden;
-  border: 2px solid var(--paper);
   border-radius: 1.25rem;
   background: rgb(var(--surface-rgb));
-  padding: 0.5rem 0.5rem 0.6rem;
+  padding: 0.625rem 0.625rem 0.725rem;
   color: var(--ink);
   font-size: 0.875rem;
   line-height: 1.3;
@@ -797,10 +797,18 @@ textarea:disabled {
   background: transparent;
   padding: 0;
   color: white;
-  transform: translateY(-50%) translateZ(0);
-  transform-style: preserve-3d;
+  transform: translateY(-50%);
   /* Sit above the tag so it can slide in and out from behind the circle. */
   z-index: 1;
+}
+
+/* The flip turns an angle that only ever changes on a toggle, never on mount.
+   Drawn flat as a squeeze through zero width, so at rest the faces sit in
+   plain 2D and render sharp instead of being resampled as 3D layers. */
+@property --bus-flip {
+  syntax: "<angle>";
+  inherits: true;
+  initial-value: 0deg;
 }
 
 .arrival-timeline-marker-flipper {
@@ -808,9 +816,9 @@ textarea:disabled {
   inset: 0;
   display: block;
   border-radius: inherit;
-  transform: rotateY(0deg);
-  transform-style: preserve-3d;
-  transition: transform 720ms cubic-bezier(0.2, 0.8, 0.2, 1) 0ms;
+  --bus-flip: 0deg;
+  transform: scaleX(cos(var(--bus-flip)));
+  transition: --bus-flip 720ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 /* Pop each icon on its stable stagger while the continuous line is drawing. */
@@ -836,7 +844,7 @@ textarea:disabled {
 }
 
 .arrival-timeline-bus-marker-selected .arrival-timeline-marker-flipper {
-  transform: rotateY(-180deg);
+  --bus-flip: 180deg;
 }
 
 .arrival-timeline-marker-face {
@@ -847,19 +855,22 @@ textarea:disabled {
   border: 2px solid var(--paper);
   border-radius: inherit;
   box-shadow: 0 1px 4px rgb(var(--shadow-rgb) / 0.18);
-  -webkit-backface-visibility: hidden;
-  backface-visibility: hidden;
   transition: box-shadow 140ms ease;
 }
 
+/* Each side shows only while it faces you. */
 .arrival-timeline-marker-face-disabled {
   background: var(--muted-marker);
+  opacity: clamp(0, cos(var(--bus-flip)) * 1000, 1);
 }
 
+/* Whole pixels: a 38px circle around a 28px face keeps the face on the grid. */
 .arrival-timeline-marker-face-enabled {
-  inset: -0.2rem;
+  inset: -0.1875rem;
   background: var(--signal);
-  transform: rotateY(180deg);
+  opacity: clamp(0, cos(var(--bus-flip)) * -1000, 1);
+  /* Mirrored, so it reads the right way round once the flipper has turned. */
+  transform: scaleX(-1);
 }
 
 /* Holds the circle's mood: hops, tilts and fades never touch the button's own
@@ -870,7 +881,6 @@ textarea:disabled {
   display: block;
   border-radius: 999px;
   transform-origin: 50% 70%;
-  transform-style: preserve-3d;
   transition:
     opacity 350ms ease,
     transform 350ms cubic-bezier(0.16, 1, 0.3, 1);
@@ -887,8 +897,8 @@ textarea:disabled {
 }
 
 .arrival-timeline-marker-face-enabled .bus-face {
-  width: 1.6875rem;
-  height: 1.6875rem;
+  width: 1.75rem;
+  height: 1.75rem;
 }
 
 .bus-face-eyes,
@@ -959,6 +969,27 @@ textarea:disabled {
   opacity: 0.42;
   transform: scale(0.88);
   animation: none;
+}
+
+/* A paper disc the size of the faded circle, so the rail doesn't show through
+   it. It shifts down as the body shrinks towards its 70% origin. */
+.arrival-timeline-bus-marker::before {
+  position: absolute;
+  inset: 0.12rem;
+  border-radius: 999px;
+  background: var(--paper);
+  content: "";
+  opacity: 0;
+  translate: 0 0.05rem;
+  transition: opacity 350ms ease;
+}
+
+.arrival-timeline-bus-marker-selected::before {
+  inset: -0.06rem;
+}
+
+.arrival-timeline-row-unreachable .arrival-timeline-bus-marker::before {
+  opacity: 1;
 }
 
 .arrival-timeline-row-unreachable .bus-face-gaze {
@@ -1260,6 +1291,7 @@ textarea:disabled {
   margin: 0;
   border-radius: 999px;
   color: white;
+  opacity: 1;
   pointer-events: none;
   transform: none;
   will-change: transform;
@@ -1373,22 +1405,22 @@ textarea:disabled {
 @keyframes bus-pop-enter {
   0% {
     opacity: 0;
-    transform: translateY(-50%) translateZ(0) scale(0.25);
+    transform: translateY(-50%) scale(0.25);
   }
 
   52% {
     opacity: 1;
-    transform: translateY(-50%) translateZ(0) scale(var(--arrival-pop-scale));
+    transform: translateY(-50%) scale(var(--arrival-pop-scale));
   }
 
   76% {
     opacity: 1;
-    transform: translateY(-50%) translateZ(0) scale(0.9);
+    transform: translateY(-50%) scale(0.9);
   }
 
   100% {
     opacity: 1;
-    transform: translateY(-50%) translateZ(0) scale(1);
+    transform: translateY(-50%) scale(1);
   }
 }
 
@@ -1423,17 +1455,17 @@ textarea:disabled {
 /* Swell past full size, then fall away to nothing. */
 @keyframes bus-pop-exit {
   0% {
-    transform: translateY(-50%) translateZ(0) scale(1);
+    transform: translateY(-50%) scale(1);
     animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
   }
 
   35% {
-    transform: translateY(-50%) translateZ(0) scale(var(--arrival-pop-scale));
+    transform: translateY(-50%) scale(var(--arrival-pop-scale));
     animation-timing-function: cubic-bezier(0.6, 0, 0.9, 0.4);
   }
 
   100% {
-    transform: translateY(-50%) translateZ(0) scale(0);
+    transform: translateY(-50%) scale(0);
   }
 }
 
