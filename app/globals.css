@@ -26,6 +26,12 @@
   --toast-neutral: #e5e1d7;
   --font-display: "Avenir Next", Avenir, "Segoe UI", sans-serif;
   --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  /* The rail's centre line, shared by the stop card's marker and every bus circle.
+     Leaves room left of a circle for its "??" indicator, which the scrolling
+     timeline would otherwise clip. */
+  --timeline-axis: 2.5rem;
+  /* From a bus circle's centre to its ETA and line tag. */
+  --timeline-tag-inset: 1.9375rem;
 }
 
 [data-theme="dark"] {
@@ -398,7 +404,8 @@ textarea:disabled {
   gap: 0.75rem;
   border: 1px solid rgb(var(--ink-rgb) / 0.2);
   background: rgb(var(--surface-rgb) / 0.34);
-  padding: 0.75rem 1rem;
+  /* Centre the 1.5rem marker on the rail, inside the 1px border. */
+  padding: 0.75rem 1rem 0.75rem calc(var(--timeline-axis) - 1px - 0.75rem);
   color: var(--ink);
   transition:
     border-color 160ms ease,
@@ -477,7 +484,7 @@ textarea:disabled {
   position: absolute;
   top: calc(50% + 0.75rem);
   bottom: -3px;
-  left: calc(1.75rem - 1px);
+  left: calc(var(--timeline-axis) - 2px);
   z-index: 1;
   width: 2px;
   background: var(--signal);
@@ -501,8 +508,6 @@ textarea:disabled {
 }
 
 .arrival-timeline-section {
-  --timeline-axis: 1.8125rem;
-
   position: relative;
   display: flex;
   min-height: 0;
@@ -631,6 +636,9 @@ textarea:disabled {
   transition:
     top 600ms linear,
     transform 600ms linear;
+  /* Its own layer moves as one image, so the text and the SVG arrow can't snap
+     to different pixels while the bus glides down the rail. */
+  will-change: transform;
 }
 
 .arrival-timeline-group-forward {
@@ -657,7 +665,7 @@ textarea:disabled {
   display: flex;
   min-height: 2.25rem;
   align-items: center;
-  padding-left: 3.75rem;
+  padding-left: calc(var(--timeline-axis) + var(--timeline-tag-inset));
 }
 
 .arrival-timeline-bus-marker {
@@ -678,6 +686,8 @@ textarea:disabled {
   color: white;
   transform: translateY(-50%) translateZ(0);
   transform-style: preserve-3d;
+  /* Sit above the tag so it can slide in and out from behind the circle. */
+  z-index: 1;
 }
 
 .arrival-timeline-marker-flipper {
@@ -691,7 +701,8 @@ textarea:disabled {
 }
 
 /* Pop each icon on its stable stagger while the continuous line is drawing. */
-.arrival-timeline-section-entering .arrival-timeline-bus-marker {
+.arrival-timeline-section-entering .arrival-timeline-bus-marker,
+.arrival-timeline-row-arriving .arrival-timeline-bus-marker {
   animation: bus-pop-enter var(--arrival-icon-duration) cubic-bezier(0.2, 0.8, 0.2, 1)
     var(--arrival-enter-delay) both;
 }
@@ -752,22 +763,25 @@ textarea:disabled {
   height: 1.5rem;
 }
 
+/* Sits left of the circle, below it, so it can slide in and out from under it. */
 .arrival-confidence-indicator {
+  /* Distance from the circle's centre to the indicator's right edge. */
+  --arrival-badge-tuck: 1.18rem;
+
   position: absolute;
-  z-index: 3;
-  top: 50%;
-  right: calc(100% + 0.18rem);
+  top: 0;
+  right: calc(100% - var(--timeline-axis) + var(--arrival-badge-tuck));
+  bottom: 0;
   display: grid;
   width: 1.15rem;
-  height: 1.15rem;
   place-items: center;
   color: var(--ink);
   filter: drop-shadow(0 1px 0 var(--paper));
   pointer-events: none;
-  transform: translateY(-50%);
 }
 
 .arrival-confidence-questions {
+  display: block;
   font-family: var(--font-mono);
   font-size: 0.74rem;
   font-weight: 900;
@@ -788,10 +802,19 @@ textarea:disabled {
   animation: bus-jump-flip 960ms cubic-bezier(0.42, 0, 0.58, 1) both;
 }
 
+/* The ETA and line tag travel as one piece when a bus arrives or departs. */
+.arrival-tag {
+  --arrival-tag-tuck: var(--timeline-tag-inset);
+
+  display: flex;
+  min-width: 0;
+  max-width: calc(100% - 1rem);
+  align-items: center;
+}
+
 .arrival-bus {
   display: inline-flex;
   min-width: 0;
-  max-width: calc(100% - 3rem);
   min-height: 2.25rem;
   align-items: center;
   gap: 0.38rem;
@@ -808,11 +831,37 @@ textarea:disabled {
     box-shadow 140ms ease;
 }
 
-/* Fade the tag and ETA from the same staggered start used by its bus icon. */
-.arrival-timeline-section-entering .arrival-bus,
-.arrival-timeline-section-entering .arrival-bus-eta {
-  animation: arrival-tag-enter var(--arrival-tag-duration) ease-out
-    var(--arrival-enter-delay) both;
+/* Once its circle peaks, the tag and the confidence indicator decelerate out
+   from behind it, one to each side. */
+.arrival-timeline-section-entering .arrival-tag,
+.arrival-timeline-row-arriving .arrival-tag {
+  animation: arrival-tag-extend var(--arrival-tag-duration)
+    cubic-bezier(0.16, 1, 0.3, 1) var(--arrival-tag-delay) both;
+}
+
+.arrival-timeline-section-entering .arrival-confidence-indicator,
+.arrival-timeline-row-arriving .arrival-confidence-indicator {
+  animation: arrival-badge-extend var(--arrival-tag-duration)
+    cubic-bezier(0.16, 1, 0.3, 1) var(--arrival-tag-delay) both;
+}
+
+/* A departing tag runs the same slide backwards, so it accelerates into hiding,
+   then its circle overshoots and shrinks to nothing. */
+.arrival-timeline-group-departing {
+  pointer-events: none;
+  transition: none;
+}
+
+.arrival-timeline-row-departing .arrival-tag {
+  animation: arrival-tag-extend 240ms cubic-bezier(0.16, 1, 0.3, 1) reverse both;
+}
+
+.arrival-timeline-row-departing .arrival-confidence-indicator {
+  animation: arrival-badge-extend 240ms cubic-bezier(0.16, 1, 0.3, 1) reverse both;
+}
+
+.arrival-timeline-row-departing .arrival-timeline-bus-marker {
+  animation: bus-pop-exit 320ms 180ms both;
 }
 
 .arrival-bus:hover,
@@ -884,8 +933,6 @@ textarea:disabled {
 }
 
 .arrival-direction-arrow {
-  position: relative;
-  top: 0.5px;
   display: block;
   flex: 0 0 auto;
   width: 0.78rem;
@@ -911,14 +958,16 @@ textarea:disabled {
   animation: urgent-toast-in 240ms ease-out both;
 }
 
-/* Keep tags calm while the paired icon supplies the bounce. */
-@keyframes arrival-tag-enter {
+/* Clips the tag at the circle's centre while it slides, so it never shows past it. */
+@keyframes arrival-tag-extend {
   from {
-    opacity: 0;
+    clip-path: inset(-0.5rem -0.5rem -0.5rem 100%);
+    transform: translateX(calc(-100% - var(--arrival-tag-tuck)));
   }
 
   to {
-    opacity: 1;
+    clip-path: inset(-0.5rem -0.5rem -0.5rem calc(-1 * var(--arrival-tag-tuck)));
+    transform: translateX(0);
   }
 }
 
@@ -942,6 +991,36 @@ textarea:disabled {
   100% {
     opacity: 1;
     transform: translateY(-50%) translateZ(0) scale(1);
+  }
+}
+
+/* The tag's slide mirrored: clipped at the circle's centre from the left side. */
+@keyframes arrival-badge-extend {
+  from {
+    clip-path: inset(-0.5rem 100% -0.5rem -0.5rem);
+    transform: translateX(calc(100% + var(--arrival-badge-tuck)));
+  }
+
+  to {
+    clip-path: inset(-0.5rem calc(-1 * var(--arrival-badge-tuck)) -0.5rem -0.5rem);
+    transform: translateX(0);
+  }
+}
+
+/* Swell past full size, then fall away to nothing. */
+@keyframes bus-pop-exit {
+  0% {
+    transform: translateY(-50%) translateZ(0) scale(1);
+    animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  35% {
+    transform: translateY(-50%) translateZ(0) scale(var(--arrival-pop-scale));
+    animation-timing-function: cubic-bezier(0.6, 0, 0.9, 0.4);
+  }
+
+  100% {
+    transform: translateY(-50%) translateZ(0) scale(0);
   }
 }
 
@@ -985,8 +1064,8 @@ textarea:disabled {
 }
 
 @keyframes confidence-question-orbit {
-  0%, 100% { transform: translateY(-50%) translate(0, 0) rotate(-8deg); }
-  50% { transform: translateY(-50%) translate(-0.22rem, -0.22rem) rotate(8deg); }
+  0%, 100% { transform: translate(0, 0) rotate(-8deg); }
+  50% { transform: translate(-0.22rem, -0.22rem) rotate(8deg); }
 }
 
 @keyframes toast-countdown {
@@ -1022,11 +1101,19 @@ textarea:disabled {
   .arrival-bus,
   .arrival-timeline-rail,
   .arrival-timeline-section-entering .arrival-timeline-bus-marker,
-  .arrival-timeline-section-entering .arrival-bus,
+  .arrival-timeline-section-entering .arrival-tag,
+  .arrival-timeline-row-arriving .arrival-timeline-bus-marker,
+  .arrival-timeline-row-arriving .arrival-tag,
+  .arrival-confidence-indicator,
   .arrival-timeline-group-backward,
   .arrival-timeline-row-flip .arrival-timeline-bus-marker,
   .urgent-toast {
     animation: none;
+  }
+
+  /* Departed buses simply vanish. */
+  .arrival-timeline-group-departing {
+    display: none;
   }
 
   .arrival-confidence-questions,

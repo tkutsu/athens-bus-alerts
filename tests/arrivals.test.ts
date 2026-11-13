@@ -25,7 +25,13 @@ describe("arrivalEntranceTiming", () => {
     for (const timing of timings) {
       expect(timing.delayMs).toBeGreaterThanOrEqual(280);
       expect(timing.delayMs + timing.iconDurationMs).toBeLessThanOrEqual(860);
-      expect(timing.delayMs + timing.tagDurationMs).toBeLessThanOrEqual(860);
+      // Each tag waits for its circle's peak and settles soon after the line draw.
+      expect(timing.tagDelayMs).toBe(
+        timing.delayMs + Math.round(timing.iconDurationMs / 2),
+      );
+      expect(timing.tagDelayMs + timing.tagDurationMs).toBeLessThanOrEqual(
+        860 + 300,
+      );
       expect(timing.overshootScale).toBeGreaterThanOrEqual(1.22);
     }
   });

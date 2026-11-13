@@ -777,6 +777,8 @@ export function TickerApp() {
       )}
       {selectedStop && !pickerOpen ? (
         <ArrivalTimeline
+          // A new stop is a fresh reveal, not every old bus departing at once.
+          key={selectedStop.code}
           arrivals={timelineArrivals}
           isLoading={arrivalsLoading || isLoadingStop || arrivalData === null}
           isUnavailable={arrivalsUnavailable}

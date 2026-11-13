@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -47,12 +48,27 @@ const TIMELINE_EDGE_PADDING_PX = 16;
 const CORRECTION_ANIMATION_MS = 1_050;
 const LINE_ENTRANCE_START_MS = 280;
 const LINE_ENTRANCE_END_MS = 860;
+const TAG_SLIDE_MAX_MS = 300;
+/** The tag tucks away (240ms) while the circle starts its 320ms pop at 180ms. */
+const DEPARTURE_MS = 500;
+/** The slowest pop (360ms) peaks at 180ms, then the slowest tag slides for 300ms. */
+const ARRIVAL_MS = 480;
 
 export interface ArrivalEntranceTiming {
   delayMs: number;
   iconDurationMs: number;
   overshootScale: number;
+  tagDelayMs: number;
   tagDurationMs: number;
+}
+
+/** A bus's last on-screen state, kept long enough to animate it away. */
+interface RowSnapshot {
+  arrival: TimelineArrival;
+  top: number;
+  selected: boolean;
+  muted: boolean;
+  estimatedEta: number;
 }
 
 function BusIcon() {
@@ -126,8 +142,139 @@ export function arrivalEntranceTiming(
     delayMs,
     iconDurationMs,
     overshootScale: 1.22 + (hash(3) % 13) / 100,
-    tagDurationMs: 180 + (hash(4) % 81),
+    // The tag slides out once its circle has reached the top of its pop.
+    tagDelayMs: delayMs + Math.round(iconDurationMs / 2),
+    tagDurationMs: TAG_SLIDE_MAX_MS - 80 + (hash(4) % 81),
   };
+}
+
+function ArrivalRow({
+  arrival,
+  estimatedEta,
+  flippedBack = false,
+  isUnavailable,
+  motion,
+  muted,
+  onToggleRoute,
+  selected,
+}: Omit<RowSnapshot, "top"> & {
+  flippedBack?: boolean;
+  isUnavailable: boolean;
+  motion?: "arriving" | "departing";
+  onToggleRoute: (routeCode: string, lineId: string) => void;
+}) {
+  const timingLabel = isUnavailable
+    ? `last reported ${arrival.minutes} minutes away`
+    : estimatedEta === 0
+      ? "due now"
+      : `${estimatedEta} minutes away`;
+  const lineName = formatTransitName(arrival.lineId);
+  const uncertain =
+    isUnavailable || arrival.confidence === "stale" ||
+    arrival.confidence === "unconfirmed";
+  const slipping = !uncertain && arrival.confidence === "slipping";
+  const timing = arrivalEntranceTiming(arrival.vehicleKey);
+  // A bus that shows up mid-session pops in straight away, not on the reveal stagger.
+  const delayShiftMs = motion === "arriving" ? timing.delayMs : 0;
+  // Pass each stable schedule to CSS without changing row geometry.
+  const rowStyle = {
+    "--arrival-enter-delay": `${timing.delayMs - delayShiftMs}ms`,
+    "--arrival-icon-duration": `${timing.iconDurationMs}ms`,
+    "--arrival-pop-scale": timing.overshootScale,
+    "--arrival-tag-delay": `${timing.tagDelayMs - delayShiftMs}ms`,
+    "--arrival-tag-duration": `${timing.tagDurationMs}ms`,
+  } as CSSProperties;
+
+  // Keep the tag mounted so only the marker flips on correction.
+  return (
+    <div
+      className={`arrival-timeline-row ${
+        flippedBack ? "arrival-timeline-row-flip" : ""
+      } ${motion ? `arrival-timeline-row-${motion}` : ""}`}
+      style={rowStyle}
+    >
+      {(uncertain || slipping) && (
+        // Outside the marker so it slides from under the circle instead of popping with it.
+        <span aria-hidden="true" className="arrival-confidence-indicator">
+          {uncertain ? (
+            <span className="arrival-confidence-questions">??</span>
+          ) : (
+            <SleepIndicator />
+          )}
+        </span>
+      )}
+      <button
+        aria-label={`${
+          selected ? "Disable" : "Enable"
+        } tracking for line ${lineName}, ${timingLabel}${
+          uncertain
+            ? ", arrival is unconfirmed"
+            : slipping
+              ? ", ETA has slipped significantly"
+              : ""
+        }`}
+        aria-pressed={selected}
+        className={`arrival-timeline-bus-marker ${
+          selected
+            ? "arrival-timeline-bus-marker-selected"
+            : ""
+        }`}
+        onClick={() =>
+          onToggleRoute(arrival.routeCode, arrival.lineId)
+        }
+        title={`${selected ? "Disable" : "Enable"} line ${lineName}`}
+        type="button"
+      >
+        <span
+          aria-hidden="true"
+          className="arrival-timeline-marker-flipper"
+        >
+          <span className="arrival-timeline-marker-face arrival-timeline-marker-face-disabled">
+            <BusIcon />
+          </span>
+          <span className="arrival-timeline-marker-face arrival-timeline-marker-face-enabled">
+            <BusIcon />
+          </span>
+        </span>
+      </button>
+      <span className="arrival-tag">
+        <span
+          className={`arrival-bus-eta ${
+            !isUnavailable && estimatedEta === 0 ? "arrival-bus-eta-due" : ""
+          }`}
+          aria-hidden="true"
+        >
+          {!isUnavailable && estimatedEta === 0 ? (
+            <SuccessCheckIcon />
+          ) : (
+            `${estimatedEta}m`
+          )}
+        </span>
+        <button
+          aria-label={`${
+            selected ? "Disable" : "Enable"
+          } notifications for line ${lineName}, ${timingLabel}`}
+          aria-pressed={selected}
+          className={`arrival-bus ${
+            selected ? "arrival-bus-selected" : ""
+          } ${muted ? "arrival-bus-muted" : ""}`}
+          onClick={() =>
+            onToggleRoute(arrival.routeCode, arrival.lineId)
+          }
+          title={formatTransitName(arrival.description)}
+          type="button"
+        >
+          <span className="arrival-bus-code">{lineName}</span>
+          <DirectionArrow />
+          <span className="arrival-bus-direction">
+            {formatTransitName(
+              arrival.destination ?? arrival.description,
+            )}
+          </span>
+        </button>
+      </span>
+    </div>
+  );
 }
 
 /** Maps one minute of elapsed time to exactly one minute of rail travel. */
@@ -230,6 +377,13 @@ export function ArrivalTimeline({
     null,
   );
   const [entranceActive, setEntranceActive] = useState(true);
+  const [departingRows, setDepartingRows] = useState<RowSnapshot[]>([]);
+  const [arrivingKeys, setArrivingKeys] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const previousKeysRef = useRef<ReadonlySet<string> | null>(null);
+  const rowLayoutRef = useRef<ReadonlyMap<string, RowSnapshot>>(new Map());
+  const motionTimersRef = useRef(new Set<number>());
   const selectedRoutes = useMemo(
     () => new Set(selectedRouteCodes),
     [selectedRouteCodes],
@@ -251,9 +405,13 @@ export function ArrivalTimeline({
     // Scope entrance animations to the line-mode reveal so corrections cannot replay them.
     const timeout = window.setTimeout(
       () => setEntranceActive(false),
-      LINE_ENTRANCE_END_MS,
+      LINE_ENTRANCE_END_MS + TAG_SLIDE_MAX_MS,
     );
-    return () => window.clearTimeout(timeout);
+    const motionTimers = motionTimersRef.current;
+    return () => {
+      window.clearTimeout(timeout);
+      motionTimers.forEach((timer) => window.clearTimeout(timer));
+    };
   }, []);
 
   const setTimelineNode = useCallback((timeline: HTMLDivElement | null) => {
@@ -348,9 +506,6 @@ export function ArrivalTimeline({
       })
       .sort((a, b) => b.minutes - a.minutes);
   }, [visibleArrivals, selectedRoutes]);
-  const entranceTimings = useMemo(() => new Map(
-    visibleArrivals.map((arrival) => [arrival.vehicleKey, arrivalEntranceTiming(arrival.vehicleKey)]),
-  ), [visibleArrivals]);
   const groupHeights = groups.map(
     (group) =>
       group.items.length * (timelineMetrics.rowHeight + timelineMetrics.gap) -
@@ -386,6 +541,71 @@ export function ArrivalTimeline({
     groupTops[index] = Math.max(groupTops[index], previousBottom);
     previousBottom = groupTops[index] + groupHeights[index] + timelineMetrics.gap;
   }
+  const rowLayout = new Map<string, RowSnapshot>();
+  groups.forEach((group, groupIndex) => {
+    group.orderedItems.forEach((arrival, rowIndex) => {
+      const selected = selectedRoutes.has(arrival.routeCode);
+      rowLayout.set(arrival.vehicleKey, {
+        arrival,
+        top:
+          groupTops[groupIndex] +
+          rowIndex * (timelineMetrics.rowHeight + timelineMetrics.gap),
+        selected,
+        muted: selectedRoutes.size > 0 && !selected,
+        estimatedEta: Math.max(0, Math.ceil(arrival.minutes - elapsedMinutes)),
+      });
+    });
+  });
+
+  // Diff before paint against the previous render's buses, so a departing bus
+  // is redrawn where it last stood and an arriving one never shows unanimated.
+  useLayoutEffect(() => {
+    const keys = new Set(visibleArrivals.map((arrival) => arrival.vehicleKey));
+    const previousKeys = previousKeysRef.current;
+    previousKeysRef.current = keys;
+    if (!previousKeys || isUnavailable || isLoading) return;
+
+    const later = (callback: () => void, delayMs: number) => {
+      const timer = window.setTimeout(() => {
+        motionTimersRef.current.delete(timer);
+        callback();
+      }, delayMs);
+      motionTimersRef.current.add(timer);
+    };
+    const departed = [...previousKeys].flatMap((key) => {
+      const row = keys.has(key) ? undefined : rowLayoutRef.current.get(key);
+      return row ? [row] : [];
+    });
+    const arrived = entranceActive
+      ? []
+      : [...keys].filter((key) => !previousKeys.has(key));
+
+    setDepartingRows((rows) => {
+      // A bus that reappears mid-exit takes its place back from its copy.
+      const kept = rows.filter((row) => !keys.has(row.arrival.vehicleKey));
+      return kept.length === rows.length && departed.length === 0
+        ? rows
+        : [...kept, ...departed];
+    });
+    if (departed.length > 0) {
+      later(
+        () => setDepartingRows((rows) => rows.filter((row) => !departed.includes(row))),
+        DEPARTURE_MS,
+      );
+    }
+    if (arrived.length > 0) {
+      setArrivingKeys((current) => new Set([...current, ...arrived]));
+      later(
+        () => setArrivingKeys((current) =>
+          new Set([...current].filter((key) => !arrived.includes(key)))),
+        ARRIVAL_MS,
+      );
+    }
+  }, [entranceActive, isLoading, isUnavailable, visibleArrivals]);
+
+  useLayoutEffect(() => {
+    rowLayoutRef.current = rowLayout;
+  });
 
   return (
     <section
@@ -402,7 +622,7 @@ export function ArrivalTimeline({
         <p className="arrival-timeline-empty">Couldn&apos;t load live arrivals.</p>
       ) : isLoading && arrivals.length === 0 ? (
         <p className="empty-copy mt-5">Loading live arrivals...</p>
-      ) : arrivals.length === 0 ? (
+      ) : arrivals.length === 0 && departingRows.length === 0 ? (
         <p className="arrival-timeline-empty">no bus found :(</p>
       ) : (
         <div
@@ -488,132 +708,39 @@ export function ArrivalTimeline({
                   .join("-")}
                 style={groupStyle}
               >
-                {group.orderedItems.map((arrival) => {
-                  const selected = selectedRoutes.has(arrival.routeCode);
-                  const muted = selectedRoutes.size > 0 && !selected;
-                  const flippedBack =
-                    !isUnavailable && !atCutoff &&
-                    correctionActive &&
-                    corrections.backward.has(arrival.vehicleKey);
-                  const estimatedEta = Math.max(
-                    0,
-                    Math.ceil(arrival.minutes - elapsedMinutes),
-                  );
-                  const timingLabel = isUnavailable
-                    ? `last reported ${arrival.minutes} minutes away`
-                    : estimatedEta === 0
-                      ? "due now"
-                      : `${estimatedEta} minutes away`;
-                  const lineName = formatTransitName(arrival.lineId);
-                  const uncertain =
-                    isUnavailable || arrival.confidence === "stale" ||
-                    arrival.confidence === "unconfirmed";
-                  const slipping = !uncertain && arrival.confidence === "slipping";
-                  const entranceTiming = entranceTimings.get(arrival.vehicleKey)!;
-                  // Pass each stable schedule to CSS without changing row geometry.
-                  const rowStyle = {
-                    "--arrival-enter-delay": `${entranceTiming.delayMs}ms`,
-                    "--arrival-icon-duration": `${entranceTiming.iconDurationMs}ms`,
-                    "--arrival-pop-scale": entranceTiming.overshootScale,
-                    "--arrival-tag-duration": `${entranceTiming.tagDurationMs}ms`,
-                  } as CSSProperties;
-                  // Keep the tag mounted so only the marker flips on correction.
-                  return (
-                    <div
-                      className={`arrival-timeline-row ${
-                        flippedBack ? "arrival-timeline-row-flip" : ""
-                      }`}
-                      key={arrival.vehicleKey}
-                      style={rowStyle}
-                    >
-                      <button
-                        aria-label={`${
-                          selected ? "Disable" : "Enable"
-                        } tracking for line ${lineName}, ${timingLabel}${
-                          uncertain
-                            ? ", arrival is unconfirmed"
-                            : slipping
-                              ? ", ETA has slipped significantly"
-                              : ""
-                        }`}
-                        aria-pressed={selected}
-                        className={`arrival-timeline-bus-marker ${
-                          selected
-                            ? "arrival-timeline-bus-marker-selected"
-                            : ""
-                        }`}
-                        onClick={() =>
-                          onToggleRoute(arrival.routeCode, arrival.lineId)
-                        }
-                        title={`${selected ? "Disable" : "Enable"} line ${lineName}`}
-                        type="button"
-                      >
-                        <span
-                          aria-hidden="true"
-                          className="arrival-timeline-marker-flipper"
-                        >
-                          <span className="arrival-timeline-marker-face arrival-timeline-marker-face-disabled">
-                            <BusIcon />
-                          </span>
-                          <span className="arrival-timeline-marker-face arrival-timeline-marker-face-enabled">
-                            <BusIcon />
-                          </span>
-                        </span>
-                        {uncertain && (
-                          <span
-                            aria-hidden="true"
-                            className="arrival-confidence-indicator arrival-confidence-questions"
-                          >
-                            ??
-                          </span>
-                        )}
-                        {slipping && (
-                          <span className="arrival-confidence-indicator">
-                            <SleepIndicator />
-                          </span>
-                        )}
-                      </button>
-                      <span
-                        className={`arrival-bus-eta ${
-                          !isUnavailable && estimatedEta === 0 ? "arrival-bus-eta-due" : ""
-                        }`}
-                        aria-hidden="true"
-                      >
-                        {!isUnavailable && estimatedEta === 0 ? (
-                          <SuccessCheckIcon />
-                        ) : (
-                          `${estimatedEta}m`
-                        )}
-                      </span>
-                      <button
-                        aria-label={`${
-                          selected ? "Disable" : "Enable"
-                        } notifications for line ${lineName}, ${timingLabel}`}
-                        aria-pressed={selected}
-                        className={`arrival-bus ${
-                          selected ? "arrival-bus-selected" : ""
-                        } ${muted ? "arrival-bus-muted" : ""}`}
-                        onClick={() =>
-                          onToggleRoute(arrival.routeCode, arrival.lineId)
-                        }
-                        title={formatTransitName(arrival.description)}
-                        type="button"
-                      >
-                        <span className="arrival-bus-code">{lineName}</span>
-                        <DirectionArrow />
-                        <span className="arrival-bus-direction">
-                          {formatTransitName(
-                            arrival.destination ?? arrival.description,
-                          )}
-                        </span>
-                      </button>
-                    </div>
-                  );
-                })}
+                {group.orderedItems.map((arrival) => (
+                  <ArrivalRow
+                    {...rowLayout.get(arrival.vehicleKey)!}
+                    flippedBack={
+                      !isUnavailable && !atCutoff &&
+                      correctionActive &&
+                      corrections.backward.has(arrival.vehicleKey)
+                    }
+                    isUnavailable={isUnavailable}
+                    key={arrival.vehicleKey}
+                    motion={arrivingKeys.has(arrival.vehicleKey) ? "arriving" : undefined}
+                    onToggleRoute={onToggleRoute}
+                  />
+                ))}
               </div>
             );
           })}
 
+          {departingRows.map(({ top, ...row }) => (
+            <div
+              className="arrival-timeline-group arrival-timeline-group-departing"
+              inert
+              key={row.arrival.vehicleKey}
+              style={{ top, "--arrival-group-translate-y": "0px" } as CSSProperties}
+            >
+              <ArrivalRow
+                {...row}
+                isUnavailable={false}
+                motion="departing"
+                onToggleRoute={onToggleRoute}
+              />
+            </div>
+          ))}
         </div>
       )}
     </section>
