@@ -802,23 +802,12 @@ textarea:disabled {
   z-index: 1;
 }
 
-/* The flip turns an angle that only ever changes on a toggle, never on mount.
-   Drawn flat as a squeeze through zero width, so at rest the faces sit in
-   plain 2D and render sharp instead of being resampled as 3D layers. */
-@property --bus-flip {
-  syntax: "<angle>";
-  inherits: true;
-  initial-value: 0deg;
-}
-
+/* Toggling turns the circle over (flipMarker in arrival-timeline.tsx). */
 .arrival-timeline-marker-flipper {
   position: absolute;
   inset: 0;
   display: block;
   border-radius: inherit;
-  --bus-flip: 0deg;
-  transform: scaleX(cos(var(--bus-flip)));
-  transition: --bus-flip 720ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 /* Pop each icon on its stable stagger while the continuous line is drawing. */
@@ -843,8 +832,10 @@ textarea:disabled {
   background: transparent;
 }
 
-.arrival-timeline-bus-marker-selected .arrival-timeline-marker-flipper {
-  --bus-flip: 180deg;
+.arrival-timeline-bus-marker-selected .arrival-timeline-marker-face-disabled,
+.arrival-timeline-bus-marker:not(.arrival-timeline-bus-marker-selected)
+  .arrival-timeline-marker-face-enabled {
+  opacity: 0;
 }
 
 .arrival-timeline-marker-face {
@@ -858,19 +849,14 @@ textarea:disabled {
   transition: box-shadow 140ms ease;
 }
 
-/* Each side shows only while it faces you. */
 .arrival-timeline-marker-face-disabled {
   background: var(--muted-marker);
-  opacity: clamp(0, cos(var(--bus-flip)) * 1000, 1);
 }
 
 /* Whole pixels: a 38px circle around a 28px face keeps the face on the grid. */
 .arrival-timeline-marker-face-enabled {
   inset: -0.1875rem;
   background: var(--signal);
-  opacity: clamp(0, cos(var(--bus-flip)) * -1000, 1);
-  /* Mirrored, so it reads the right way round once the flipper has turned. */
-  transform: scaleX(-1);
 }
 
 /* Holds the circle's mood: hops, tilts and fades never touch the button's own
@@ -1291,7 +1277,6 @@ textarea:disabled {
   margin: 0;
   border-radius: 999px;
   color: white;
-  opacity: 1;
   pointer-events: none;
   transform: none;
   will-change: transform;
@@ -1719,7 +1704,6 @@ textarea:disabled {
 
   .arrival-timeline-group,
   .arrival-bus,
-  .arrival-timeline-marker-flipper,
   .selected-stop-row,
   .selected-stop-panel {
     transition: none;

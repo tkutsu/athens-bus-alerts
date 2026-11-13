@@ -230,6 +230,64 @@ export function arrivalEntranceTiming(
   };
 }
 
+const FLIP_MS = 720;
+/** Where the circle is edge-on and the faces swap. */
+const FLIP_TURN = 0.4;
+/** How much faster flips run once you tap again mid-flip. */
+const FLIP_HURRY = 2.5;
+const flipQueues = new WeakMap<Element, Promise<unknown>>();
+
+/**
+ * Turns a circle over to the face its new state shows. A tap mid-flip hurries
+ * the current flip to its end and queues the next one, also hurried, so every
+ * flip plays out whole.
+ */
+function flipMarker(flipper: HTMLElement, selected: boolean) {
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const running = [flipper, ...flipper.children]
+    .flatMap((element) => element.getAnimations())
+    .filter(({ id }) => id === "flip");
+  const turnOver = () =>
+    turnMarker(flipper, selected, running.length > 0 ? FLIP_MS / FLIP_HURRY : FLIP_MS);
+  if (running.length === 0) {
+    flipQueues.set(flipper, turnOver());
+    return;
+  }
+  for (const animation of running) animation.updatePlaybackRate(FLIP_HURRY);
+  const queue = flipQueues.get(flipper) ?? Promise.resolve();
+  flipQueues.set(flipper, queue.then(turnOver, turnOver));
+}
+
+/**
+ * Squeezes the circle to nothing, swaps faces and opens it again. A one-off
+ * animation, so once it ends nothing is left transformed and the faces render
+ * sharp.
+ */
+function turnMarker(flipper: HTMLElement, selected: boolean, duration: number) {
+  const flip = flipper.animate(
+    [
+      { transform: "scaleX(1)", easing: "cubic-bezier(0.5, 0, 0.9, 0.5)" },
+      { transform: "scaleX(0)", offset: FLIP_TURN, easing: "cubic-bezier(0.1, 0.5, 0.3, 1)" },
+      { transform: "scaleX(1)" },
+    ],
+    { duration, id: "flip" },
+  );
+  // Each face is held until the circle is edge-on, whatever CSS shows by now.
+  const hold = (face: Element, from: number, to: number) =>
+    face.animate(
+      [
+        { opacity: from, easing: "steps(1, end)" },
+        { opacity: to, offset: FLIP_TURN },
+        { opacity: to },
+      ],
+      { duration, id: "flip" },
+    );
+  const [disabledFace, enabledFace] = flipper.children;
+  hold(selected ? enabledFace : disabledFace, 0, 1);
+  hold(selected ? disabledFace : enabledFace, 1, 0);
+  return flip.finished;
+}
+
 function ArrivalRow({
   arrival,
   callout = false,
@@ -269,6 +327,14 @@ function ArrivalRow({
   if (eta.value !== estimatedEta) {
     setEta({ value: estimatedEta, previous: eta.value });
   }
+  const flipperRef = useRef<HTMLSpanElement>(null);
+  const flippedTo = useRef(selected);
+  // Before paint, so the new face never shows for a frame ahead of the flip.
+  useLayoutEffect(() => {
+    if (flippedTo.current === selected) return;
+    flippedTo.current = selected;
+    if (flipperRef.current) flipMarker(flipperRef.current, selected);
+  }, [selected]);
   const hash = (salt: number) => vehicleHash(arrival.vehicleKey, salt);
   const rowStyle = {
     // Each face blinks and glances on its own beat.
@@ -335,7 +401,7 @@ function ArrivalRow({
       >
         {/* Moods move the body, leaving the button's position and the flip alone. */}
         <span aria-hidden="true" className="arrival-timeline-marker-body">
-          <span className="arrival-timeline-marker-flipper">
+          <span className="arrival-timeline-marker-flipper" ref={flipperRef}>
             <span className="arrival-timeline-marker-face arrival-timeline-marker-face-disabled">
               <BusFace />
             </span>
@@ -639,7 +705,9 @@ export function ArrivalTimeline({
   // Keep a cluster near the stop inside the rail, pushing only its close neighbors down.
   let previousBottom = TIMELINE_EDGE_PADDING_PX;
   for (let index = groups.length - 1; index >= 0; index--) {
-    groupTops[index] = Math.max(groupTops[index], previousBottom);
+    // Whole pixels: a hopping bus gets its own GPU layer, and a layer placed
+    // between pixels is resampled and looks soft on 1x screens.
+    groupTops[index] = Math.round(Math.max(groupTops[index], previousBottom));
     previousBottom = groupTops[index] + groupHeights[index] + timelineMetrics.gap;
   }
   // You sit on the rail at your walking time; buses between you and the stop
