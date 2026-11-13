@@ -1,35 +1,38 @@
 import { z } from "zod";
 
-const nullableText = z.string().nullable().optional();
+// OASA has sent the same fields both as quoted strings and as bare numbers, so
+// accept either and hand the rest of the app strings.
+const text = z.union([z.string(), z.number()]).transform(String);
+const nullableText = text.nullable().optional();
 
 export const routeSchema = z.object({
-  RouteCode: z.string(),
+  RouteCode: text,
   RouteType: nullableText,
   RouteDistance: nullableText,
-  hidden: z.string().optional(),
-  RouteDescr: z.string(),
+  hidden: text.optional(),
+  RouteDescr: text,
   RouteDescrEng: nullableText,
-  LineID: z.string(),
-  LineDescr: z.string(),
+  LineID: text,
+  LineDescr: text,
   LineDescrEng: nullableText,
 });
 
 export const arrivalSchema = z.object({
-  route_code: z.string(),
-  veh_code: z.string(),
-  btime2: z.string(),
+  route_code: text,
+  veh_code: text,
+  btime2: text,
 });
 
 export const routeStopSchema = z.object({
-  StopCode: z.string(),
-  StopID: z.string().optional(),
-  StopDescr: z.string(),
+  StopCode: text,
+  StopID: text.optional(),
+  StopDescr: text,
   StopDescrEng: nullableText,
   StopStreet: nullableText,
   StopStreetEng: nullableText,
-  StopLat: z.string(),
-  StopLng: z.string(),
-  RouteStopOrder: z.string(),
+  StopLat: text,
+  StopLng: text,
+  RouteStopOrder: text,
   StopType: nullableText,
   StopAmea: nullableText,
 });
