@@ -796,6 +796,14 @@ test("uses one progressive timeline with independent multi-line toggles", async 
     "background-color",
     "rgb(183, 187, 185)",
   );
+  // Once the flip ends, nothing is left transformed, so the face renders sharp.
+  await expect
+    .poll(() =>
+      selectedBusMarker
+        .locator(".arrival-timeline-marker-flipper")
+        .evaluate((element) => getComputedStyle(element).transform),
+    )
+    .toBe("none");
   // Selection flips the orange enabled face into view.
   const selectionFlip = await selectedBusMarker.evaluate((element) => {
     const flipper = element.querySelector<HTMLElement>(
@@ -805,7 +813,10 @@ test("uses one progressive timeline with independent multi-line toggles", async 
       ".arrival-timeline-marker-face-enabled",
     );
     if (!flipper || !enabledFace) return null;
-    const style = getComputedStyle(flipper);
+    const disabledFace = element.querySelector<HTMLElement>(
+      ".arrival-timeline-marker-face-disabled",
+    );
+    if (!disabledFace) return null;
     const enabledFaceStyle = getComputedStyle(enabledFace);
     const enabledIcon = enabledFace.querySelector<HTMLElement>(
       ".bus-face",
@@ -815,23 +826,16 @@ test("uses one progressive timeline with independent multi-line toggles", async 
       backgroundColor: enabledFaceStyle.backgroundColor,
       faceWidth: Number.parseFloat(enabledFaceStyle.width),
       iconWidth: Number.parseFloat(getComputedStyle(enabledIcon).width),
-      transitionDuration: style.transitionDuration,
+      disabledOpacity: getComputedStyle(disabledFace).opacity,
+      enabledOpacity: enabledFaceStyle.opacity,
     };
   });
   expect(selectionFlip).not.toBeNull();
-  expect(selectionFlip!.transitionDuration).toBe("0.72s");
+  expect(selectionFlip!.enabledOpacity).toBe("1");
+  expect(selectionFlip!.disabledOpacity).toBe("0");
   expect(selectionFlip!.backgroundColor).toBe("rgb(229, 86, 47)");
   expect(selectionFlip!.faceWidth).toBe(38);
   expect(selectionFlip!.iconWidth).toBe(28);
-  await expect
-    .poll(() =>
-      selectedBusMarker
-        .locator(".arrival-timeline-marker-flipper")
-        .evaluate(
-          (element) => new DOMMatrix(getComputedStyle(element).transform).m11,
-        ),
-    )
-    .toBeCloseTo(-1, 5);
   const selectedEndpointRow = page
     .getByRole("button", {
       name: /Disable notifications for line 218, 23 minutes away/,
