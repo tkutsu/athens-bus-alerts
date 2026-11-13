@@ -1,11 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { dedupeArrivals } from "@/lib/arrivals";
 import {
+  anchorMinutes,
   arrivalEntranceTiming,
-  backwardJumpVehicleKeys,
-  forwardJumpVehicleKeys,
   timelinePositionPercent,
-  type TimelineArrival,
+  updateEtaAnchors,
 } from "@/components/arrival-timeline";
 
 describe("arrivalEntranceTiming", () => {
@@ -62,162 +61,71 @@ describe("dedupeArrivals", () => {
 });
 
 describe("timelinePositionPercent", () => {
-  it("moves one twentieth of the rail for each elapsed minute", () => {
-    const start = timelinePositionPercent(10, 0, 0);
-    const afterOneMinute = timelinePositionPercent(10, 0, 60_000);
-
-    expect(start).toBeCloseTo(50, 3);
-    expect(afterOneMinute).toBeCloseTo(45, 3);
-    expect(start - afterOneMinute).toBeCloseTo(100 / 20, 5);
-  });
-
-  it("reaches the stop after the current ETA and clamps distant buses", () => {
-    expect(timelinePositionPercent(4, 0, 4 * 60_000)).toBe(0);
-    expect(timelinePositionPercent(21, 0, 0)).toBe(100);
-  });
-
-  it("stays still beyond 20 minutes and starts at the 20-minute edge", () => {
-    expect(timelinePositionPercent(24, 0, 3 * 60_000)).toBe(100);
-    expect(timelinePositionPercent(24, 0, 4 * 60_000)).toBe(100);
-    expect(
-      timelinePositionPercent(24, 0, 4 * 60_000 + 15_000),
-    ).toBeCloseTo(98.75, 3);
+  it("moves one twentieth of the rail per minute and clamps at 20", () => {
+    expect(timelinePositionPercent(10)).toBe(50);
+    expect(timelinePositionPercent(9) - timelinePositionPercent(10)).toBe(-5);
+    expect(timelinePositionPercent(24)).toBe(100);
+    expect(timelinePositionPercent(-1)).toBe(0);
   });
 });
 
-describe("backwardJumpVehicleKeys", () => {
-  it("only marks known physical buses whose ETA increased", () => {
-    const arrivals: TimelineArrival[] = [
-      {
-        routeCode: "2810",
-        vehicleId: "218-a",
-        vehicleKey: "2810:218-a",
-        lineId: "218",
-        description: "Line 218",
-        minutes: 7,
-      },
-      {
-        routeCode: "5000",
-        vehicleId: "500-a",
-        vehicleKey: "5000:500-a",
-        lineId: "500",
-        description: "Line 500",
-        minutes: 5,
-      },
-      {
-        routeCode: "5000",
-        vehicleId: "500-new",
-        vehicleKey: "5000:500-new",
-        lineId: "500",
-        description: "Line 500",
-        minutes: 9,
-      },
-    ];
+describe("updateEtaAnchors", () => {
+  const MINUTE = 60_000;
+  const key = "2810:218-a";
+  const step = (
+    previous: Parameters<typeof updateEtaAnchors>[0],
+    minutes: number,
+    atMs: number,
+  ) => updateEtaAnchors(previous, [{ vehicleKey: key, minutes }], atMs);
 
-    expect(
-      [...backwardJumpVehicleKeys(
-        new Map([
-          ["2810:218-a", 4],
-          ["5000:500-a", 6],
-        ]),
-        arrivals,
-      )],
-    ).toEqual(["2810:218-a"]);
+  it("keeps a bus rolling forward through a repeated report", () => {
+    const first = step(new Map(), 5, 0);
+    const second = step(first.anchors, 5, 20_000);
+    const third = step(second.anchors, 5, 40_000);
+
+    const shown = [0, 20_000, 40_000, 60_000].map((at) =>
+      anchorMinutes((at < 20_000 ? first : at < 40_000 ? second : third).anchors.get(key)!, at),
+    );
+    for (let i = 1; i < shown.length; i++) expect(shown[i]).toBeLessThan(shown[i - 1]);
+    expect(second.backward.size + third.backward.size).toBe(0);
   });
 
-  it("detects a visual backtrack from an unchanged integer ETA", () => {
-    const arrival: TimelineArrival = {
-      routeCode: "2810",
-      vehicleId: "218-a",
-      vehicleKey: "2810:218-a",
-      lineId: "218",
-      description: "Line 218",
-      minutes: 4,
-    };
-
-    expect(
-      backwardJumpVehicleKeys(
-        new Map([[arrival.vehicleKey, 4]]),
-        [arrival],
-        0.5,
-      ).has(arrival.vehicleKey),
-    ).toBe(true);
+  it("eases off the further it runs ahead, and never backs up on repeats", () => {
+    let anchors = step(new Map(), 5, 0).anchors;
+    let previous = 5;
+    for (let at = 20_000; at <= 600_000; at += 20_000) {
+      const update = step(anchors, 5, at);
+      anchors = update.anchors;
+      const shown = anchorMinutes(anchors.get(key)!, at);
+      expect(update.backward.size).toBe(0);
+      expect(shown).toBeLessThanOrEqual(previous);
+      previous = shown;
+    }
+    expect(anchors.get(key)!.rate).toBeLessThan(0.1);
+    expect(previous).toBeGreaterThan(3);
   });
 
-  it("does not flip for a correction shorter than one marker", () => {
-    const arrival: TimelineArrival = {
-      routeCode: "2810",
-      vehicleId: "218-a",
-      vehicleKey: "2810:218-a",
-      lineId: "218",
-      description: "Line 218",
-      minutes: 4,
-    };
-
-    expect(
-      backwardJumpVehicleKeys(
-        new Map([[arrival.vehicleKey, 4]]),
-        [arrival],
-        0.5,
-        0.75,
-      ),
-    ).toEqual(new Set());
+  it("jumps forward for a clearly sooner report", () => {
+    const first = step(new Map(), 6, 0);
+    const second = step(first.anchors, 4, 20_000);
+    expect(second.forward.has(key)).toBe(true);
+    expect(anchorMinutes(second.anchors.get(key)!, 20_000)).toBe(4);
   });
 
-  it("does not animate changes that remain beyond the 20-minute cutoff", () => {
-    const arrival: TimelineArrival = {
-      routeCode: "2810",
-      vehicleId: "218-a",
-      vehicleKey: "2810:218-a",
-      lineId: "218",
-      description: "Line 218",
-      minutes: 23,
-    };
+  it("jumps back only when the report is clearly further away", () => {
+    const first = step(new Map(), 4, 0);
+    const later = step(first.anchors, 7, MINUTE);
+    expect(later.backward.get(key)).toBeCloseTo(3, 5);
+    expect(anchorMinutes(later.anchors.get(key)!, MINUTE)).toBe(7);
 
-    expect(
-      backwardJumpVehicleKeys(
-        new Map([[arrival.vehicleKey, 22]]),
-        [arrival],
-      ),
-    ).toEqual(new Set());
-  });
-});
-
-describe("forwardJumpVehicleKeys", () => {
-  it("detects a fresh ETA that is ahead of the animated estimate", () => {
-    const arrival: TimelineArrival = {
-      routeCode: "2810",
-      vehicleId: "218-a",
-      vehicleKey: "2810:218-a",
-      lineId: "218",
-      description: "Line 218",
-      minutes: 2,
-    };
-
-    expect(
-      forwardJumpVehicleKeys(
-        new Map([[arrival.vehicleKey, 4]]),
-        [arrival],
-        0.5,
-      ).has(arrival.vehicleKey),
-    ).toBe(true);
+    const small = step(first.anchors, 5, 20_000);
+    expect(small.backward.size).toBe(0);
   });
 
-  it("detects a bus crossing inward from the 20-minute cutoff", () => {
-    const arrival: TimelineArrival = {
-      routeCode: "2810",
-      vehicleId: "218-a",
-      vehicleKey: "2810:218-a",
-      lineId: "218",
-      description: "Line 218",
-      minutes: 19,
-    };
-
-    expect(
-      forwardJumpVehicleKeys(
-        new Map([[arrival.vehicleKey, 22]]),
-        [arrival],
-      ).has(arrival.vehicleKey),
-    ).toBe(true);
+  it("does not animate changes beyond the 20-minute edge", () => {
+    const first = step(new Map(), 22, 0);
+    const second = step(first.anchors, 26, MINUTE);
+    expect(second.backward.size).toBe(0);
+    expect(step(first.anchors, 19, MINUTE).forward.has(key)).toBe(true);
   });
 });

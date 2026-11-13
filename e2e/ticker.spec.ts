@@ -1,6 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
 import { createSubscription, STORAGE_KEY } from "../lib/storage";
 
+// A line tag's own row and group, however deeply the tag button is nested.
+const ROW =
+  'xpath=ancestor::div[contains(concat(" ", @class, " "), " arrival-timeline-row ")][1]';
+const GROUP =
+  'xpath=ancestor::div[contains(concat(" ", @class, " "), " arrival-timeline-group ")][1]';
+
 const STOP = {
   code: "400075",
   name: "HSAP N. FALHROY",
@@ -167,7 +173,7 @@ test("keeps the arrivals warning through 20-second retries until an empty succes
   await expect(warning.locator("p").filter({ hasText: "OASA isn't responding." }))
     .toHaveText(/OASA isn't responding\. Retrying in \d+s\./);
   await expect(warning).not.toContainText("Retrying automatically");
-  await expect(page.getByText("Couldn't load live arrivals.", { exact: true })).toBeVisible();
+  await expect(page.getByText("Reconnecting…", { exact: true })).toBeVisible();
   await expect(page.getByText("Loading live arrivals...", { exact: true })).toHaveCount(0);
   await warning.getByRole("button", { name: "Dismiss arrival warning" }).click();
   await expect(warning).toHaveCount(0);
@@ -186,7 +192,7 @@ test("keeps the arrivals warning through 20-second retries until an empty succes
   recovered = true;
   await page.clock.fastForward(20_000);
   await expect(warning).toHaveCount(0);
-  await expect(page.getByText("no bus found :(", { exact: true })).toBeVisible();
+  await expect(page.getByText("All quiet", { exact: true })).toBeVisible();
 });
 
 test("grays and freezes last-known arrivals and pauses predicted alerts during an outage", async ({ page }, testInfo) => {
@@ -349,7 +355,7 @@ test("keeps a failed stop's route error beside selection until Retry succeeds", 
   recovered = true;
   await warning.getByRole("button", { name: "Retry", exact: true }).click();
   await expect(warning).toHaveCount(0);
-  await expect(page.getByText("no bus found :(", { exact: true })).toBeVisible();
+  await expect(page.getByText("All quiet", { exact: true })).toBeVisible();
 });
 
 test("distinguishes unusable OASA data, app failures, and offline arrivals", async ({ page, context }) => {
@@ -428,7 +434,7 @@ test("centers a borderless empty state without timeline connectors", async ({
   await page.getByRole("option", { name: /hsap n\. falhroy/i }).click();
 
   const arrivals = page.getByLabel("Bus arrivals");
-  const emptyState = page.getByText("no bus found :(", { exact: true });
+  const emptyState = page.getByText("All quiet", { exact: true });
   const stopTab = page.getByRole("button", {
     name: /hsap n\. falhroy.*change/i,
   });
@@ -610,7 +616,7 @@ test("uses one progressive timeline with independent multi-line toggles", async 
     page.getByText("Tap a bus to track its line.", { exact: true }),
   ).toHaveCount(0);
   await expect(page.getByText("15+", { exact: true })).toHaveCount(0);
-  await expect(page.locator(".arrival-timeline-bus-icon")).toHaveCount(10);
+  await expect(page.locator(".bus-face")).toHaveCount(10);
   // Every icon/tag pair receives a varied schedule that ends with the line draw.
   const entranceRows = page.locator(".arrival-timeline-row");
   const entranceTimings = await entranceRows.evaluateAll((rows) =>
@@ -648,20 +654,20 @@ test("uses one progressive timeline with independent multi-line toggles", async 
     "animation-name",
     "bus-pop-enter",
   );
-  await expect(entranceRows.first().locator(".arrival-bus")).toHaveCSS(
+  await expect(entranceRows.first().locator(".arrival-tag")).toHaveCSS(
     "animation-name",
-    "arrival-tag-enter",
+    "arrival-tag-extend",
   );
   const endpointGroup = page
     .getByRole("button", {
       name: /Enable notifications for line 218, 23 minutes away/,
     })
-    .locator("xpath=../..");
+    .locator(GROUP);
   const nineteenMinuteGroup = page
     .getByRole("button", {
       name: /Enable notifications for line 500, 19 minutes away/,
     })
-    .locator("xpath=../..");
+    .locator(GROUP);
   await expect(endpointGroup.locator(".arrival-bus")).toHaveCount(1);
   await expect(endpointGroup.locator(".arrival-timeline-bus-marker")).toHaveCount(
     1,
@@ -782,7 +788,7 @@ test("uses one progressive timeline with independent multi-line toggles", async 
   await expect(disable218.first()).toHaveAttribute("aria-pressed", "true");
   const selectedBusMarker = disable218
     .first()
-    .locator("xpath=..")
+    .locator(ROW)
     .locator(".arrival-timeline-bus-marker");
   await expect(
     selectedBusMarker.locator(".arrival-timeline-marker-face-disabled"),
@@ -802,7 +808,7 @@ test("uses one progressive timeline with independent multi-line toggles", async 
     const style = getComputedStyle(flipper);
     const enabledFaceStyle = getComputedStyle(enabledFace);
     const enabledIcon = enabledFace.querySelector<HTMLElement>(
-      ".arrival-timeline-bus-icon",
+      ".bus-face",
     );
     if (!enabledIcon) return null;
     return {
@@ -816,7 +822,7 @@ test("uses one progressive timeline with independent multi-line toggles", async 
   expect(selectionFlip!.transitionDuration).toBe("0.72s");
   expect(selectionFlip!.backgroundColor).toBe("rgb(229, 86, 47)");
   expect(selectionFlip!.faceWidth).toBeCloseTo(38.4, 1);
-  expect(selectionFlip!.iconWidth).toBe(24);
+  expect(selectionFlip!.iconWidth).toBe(27);
   await expect
     .poll(() =>
       selectedBusMarker
@@ -830,12 +836,12 @@ test("uses one progressive timeline with independent multi-line toggles", async 
     .getByRole("button", {
       name: /Disable notifications for line 218, 23 minutes away/,
     })
-    .locator("xpath=..");
+    .locator(ROW);
   const unselectedEndpointRow = page
     .getByRole("button", {
       name: /Enable notifications for line 500, 19 minutes away/,
     })
-    .locator("xpath=..");
+    .locator(ROW);
   const selectedEndpointMarkerBox = await selectedEndpointRow
     .locator(".arrival-timeline-bus-marker")
     .boundingBox();
@@ -914,7 +920,7 @@ test("uses one progressive timeline with independent multi-line toggles", async 
   await expect(endpointTag).toHaveCSS("border-width", "2px");
   const markerBox = await disable218
     .first()
-    .locator("xpath=..")
+    .locator(ROW)
     .locator(".arrival-timeline-bus-marker")
     .boundingBox();
   expect(markerBox).not.toBeNull();
@@ -926,7 +932,7 @@ test("uses one progressive timeline with independent multi-line toggles", async 
         (railBox!.x + railBox!.width / 2),
     ),
   ).toBeLessThan(1);
-  await expect(disable218.first().locator("xpath=../..")).toHaveCSS(
+  await expect(disable218.first().locator(GROUP)).toHaveCSS(
     "transition-duration",
     "0s",
   );
@@ -1070,7 +1076,10 @@ test("packs nearby buses without overlap in ETA order in both themes", async ({ 
   await expect(page.locator(".arrival-bus-selected")).toHaveCount(5);
   await page.clock.runFor(1_100);
   await page.locator(".arrival-timeline").evaluate(async timeline => {
-    await Promise.allSettled(timeline.getAnimations({ subtree: true }).map(animation => animation.finished));
+    // Faces blink forever, so wait only for animations that end.
+    await Promise.allSettled(timeline.getAnimations({ subtree: true })
+      .filter(animation => Number.isFinite(animation.effect?.getComputedTiming().endTime))
+      .map(animation => animation.finished));
   });
 
   for (const theme of ["light", "dark"]) {
@@ -1195,7 +1204,7 @@ test("keeps a multi-bus cutoff stack above the rail ending", async ({ page }) =>
     .getByRole("button", {
       name: /Enable notifications for line 218, 21 minutes away/,
     })
-    .locator("xpath=../..");
+    .locator(GROUP);
   const markers = cutoffGroup.locator(".arrival-timeline-bus-marker");
   await expect(cutoffGroup).toHaveClass(/arrival-timeline-group-static/);
   await expect(markers).toHaveCount(2);
@@ -1479,7 +1488,7 @@ test("flips a bus when a fresh snapshot moves it backward", async ({
 
   const correctedRow = page
     .getByRole("button", { name: /Disable notifications for line 218/ })
-    .locator("xpath=..");
+    .locator(ROW);
   await expect(
     page.getByRole("button", { name: /Disable notifications for line 218/ }),
   ).toHaveAttribute("data-correction-identity", "retained");
@@ -1547,7 +1556,7 @@ test("accelerates and brakes for a forward ETA correction", async ({
 
   const correctedGroup = page
     .getByRole("button", { name: /Disable notifications for line 218/ })
-    .locator("xpath=../..");
+    .locator(GROUP);
   await expect(correctedGroup).toHaveClass(/arrival-timeline-group-forward/);
   await expect(correctedGroup).toHaveCSS(
     "transition-timing-function",

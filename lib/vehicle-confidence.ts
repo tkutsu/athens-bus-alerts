@@ -22,6 +22,8 @@ export interface ConfidenceUpdate {
 }
 
 export const STALE_ARRIVAL_MS = 90_000;
+/** A bus this close that drops off the feed has reached the stop, not gone quiet. */
+export const ARRIVED_IF_MISSING_MINUTES = 1;
 
 function vehicleKey(arrival: Pick<Arrival, "routeCode" | "vehicleId">) {
   return `${arrival.routeCode}:${arrival.vehicleId}`;
@@ -83,9 +85,12 @@ export function updateVehicleConfidence(
   }
 
   // A vehicle absent from the snapshot survives one missed poll (shown as
-  // "unconfirmed") and at most 120s, whichever comes first.
+  // "unconfirmed") and at most 120s, whichever comes first, unless it was
+  // close enough that it has simply arrived.
   for (const [key, old] of previous) {
-    if (current.has(key) || old.arrival.minutes <= 0) continue;
+    if (current.has(key) || old.arrival.minutes <= ARRIVED_IF_MISSING_MINUTES) {
+      continue;
+    }
     const missingSnapshots =
       old.lastSnapshotAtMs === observedAtMs
         ? old.missingSnapshots

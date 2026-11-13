@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { haversineMeters } from "@/lib/distance";
-import { estimateWalkSeconds, isUsableLocation } from "@/lib/walking";
+import {
+  canReachBus,
+  estimateWalkSeconds,
+  isUsableLocation,
+  reachMinutes,
+} from "@/lib/walking";
 
 const stop = { latitude: 37.9838, longitude: 23.7275 };
 const nearby = { latitude: 37.9838, longitude: 23.7375 };
@@ -41,5 +46,19 @@ describe("isUsableLocation", () => {
         nowMs,
       ),
     ).toBe(false);
+  });
+});
+
+describe("canReachBus", () => {
+  it("allows half a minute of slack against the walk", () => {
+    expect(reachMinutes(330)).toBe(5);
+    expect(canReachBus(5, 330)).toBe(true);
+    expect(canReachBus(4.9, 330)).toBe(false);
+  });
+
+  it("treats an unknown location or a short walk as being at the stop", () => {
+    expect(reachMinutes(undefined)).toBe(0);
+    expect(reachMinutes(60)).toBe(0);
+    expect(canReachBus(0, 60)).toBe(true);
   });
 });
