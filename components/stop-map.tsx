@@ -203,10 +203,13 @@ export function StopMap({
       });
 
       marker
-        .bindTooltip(formatTransitName(stop.name), {
-          direction: "top",
-          offset: [0, -4],
-        })
+        // Leaflet parses strings as HTML, so catalogue names go in as text.
+        .bindTooltip(
+          Object.assign(document.createElement("span"), {
+            textContent: formatTransitName(stop.name),
+          }),
+          { direction: "top", offset: [0, -4] },
+        )
         .on("click", () => selectStopRef.current(stop))
         .addTo(markers);
     }

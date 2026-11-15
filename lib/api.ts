@@ -8,6 +8,28 @@ export function isStopCode(value: string): boolean {
 
 export const isRouteCode = isStopCode;
 
+// The Worker is the origin on Cloudflare, so shared caching must go through
+// the Cache API explicitly; plain Node (next dev/start) has no `caches.default`.
+export function edgeCache(): Cache | undefined {
+  return (globalThis as { caches?: { default?: Cache } }).caches?.default;
+}
+
+/** Serves a successful response from the Worker cache for as long as its `s-maxage` allows. */
+export async function cachedAtEdge(
+  request: Request,
+  load: () => Promise<Response>,
+): Promise<Response> {
+  const cache = edgeCache();
+  // Keyed by path alone so query strings cannot force upstream requests.
+  const cacheKey = new Request(new URL(new URL(request.url).pathname, request.url));
+  const cached = await cache?.match(cacheKey);
+  if (cached) return cached;
+
+  const response = await load();
+  if (response.ok) await cache?.put(cacheKey, response.clone());
+  return response;
+}
+
 export function apiError(
   status: number,
   code: ApiErrorPayload["error"]["code"],

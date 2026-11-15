@@ -51,6 +51,8 @@ import {
 } from "@/lib/vehicle-confidence";
 import { estimateWalkSeconds, isUsableLocation } from "@/lib/walking";
 
+const SERVICE_WORKER_WAIT_MS = 3_000;
+
 function stopReference(stop: StopSummary) {
   return { code: stop.code, name: stop.name };
 }
@@ -81,6 +83,7 @@ export function TickerApp() {
   const [directionWarning, setDirectionWarning] = useState<string | null>(null);
   const [dismissedArrivalWarning, setDismissedArrivalWarning] = useState<string | null>(null);
   const [urgentMessage, setUrgentMessage] = useState<string | null>(null);
+  const [catalogErrorDismissed, setCatalogErrorDismissed] = useState(false);
   const [isLoadingStop, setIsLoadingStop] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [favoritesOpen, setFavoritesOpen] = useState(false);
@@ -272,7 +275,8 @@ export function TickerApp() {
 
   /* eslint-disable react-hooks/set-state-in-effect -- hydrate browser storage after SSR */
   useEffect(() => {
-    if (hydrationStartedRef.current || catalogLoading) return;
+    // A saved stop needs its catalogue coordinates, so wait out a failed load.
+    if (hydrationStartedRef.current || catalogLoading || catalogError) return;
     hydrationStartedRef.current = true;
 
     const stored = readStoredState();
@@ -291,7 +295,7 @@ export function TickerApp() {
     } else {
       setHydrated(true);
     }
-  }, [catalogLoading, loadStop, updateSubscriptions]);
+  }, [catalogError, catalogLoading, loadStop, updateSubscriptions]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
   useEffect(() => {
@@ -474,12 +478,18 @@ export function TickerApp() {
         };
 
         try {
-          if ("serviceWorker" in navigator) {
-            const registration = await navigator.serviceWorker.ready;
-            await registration.showNotification(title, options);
-          } else {
-            new Notification(title, options);
-          }
+          // `ready` never settles when the worker fails to activate.
+          const registration =
+            "serviceWorker" in navigator
+              ? await Promise.race([
+                  navigator.serviceWorker.ready,
+                  new Promise<null>((resolve) =>
+                    window.setTimeout(resolve, SERVICE_WORKER_WAIT_MS, null),
+                  ),
+                ])
+              : null;
+          if (registration) await registration.showNotification(title, options);
+          else new Notification(title, options);
         } catch {
           if (!dueNow && !leaveNow) setStatus(`${title}. ${body}`);
         }
@@ -631,9 +641,10 @@ export function TickerApp() {
     setStatus("Your saved data was cleared.");
   }
 
+  const shownCatalogError = catalogErrorDismissed ? null : catalogError;
   const toastMessage =
-    error ?? catalogError ?? urgentMessage ?? status;
-  const toastIsError = Boolean(error || catalogError);
+    error ?? shownCatalogError ?? urgentMessage ?? status;
+  const toastIsError = Boolean(error || shownCatalogError);
   const toastIsUrgent = Boolean(!toastIsError && urgentMessage);
   const arrivalWarningKey = `${selectedStop?.code}:${arrivalsRetryAt ?? arrivalData?.observedAt ?? "initial"}`;
   const showArrivalWarning = selectedStop && !pickerOpen && arrivalsUnavailable && dismissedArrivalWarning !== arrivalWarningKey;
@@ -826,8 +837,13 @@ export function TickerApp() {
           key={toastMessage}
           message={toastMessage}
           onDismiss={() => {
-            setError(null);
-            setUrgentMessage(null);
+            // An error must not take a pending bus alert down with it.
+            if (toastIsError) {
+              setError(null);
+              setCatalogErrorDismissed(true);
+            } else {
+              setUrgentMessage(null);
+            }
             setStatus(null);
           }}
         />

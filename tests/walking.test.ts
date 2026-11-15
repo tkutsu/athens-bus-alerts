@@ -24,28 +24,15 @@ describe("estimateWalkSeconds", () => {
 });
 
 describe("isUsableLocation", () => {
-  const nowMs = Date.parse("2026-08-08T10:00:00.000Z");
-  const fresh = {
-    ...stop,
-    accuracyMeters: 20,
-    observedAt: "2026-08-08T09:59:30.000Z",
-  };
+  const precise = { ...stop, accuracyMeters: 20 };
 
-  it("accepts a fresh, precise position", () => {
-    expect(isUsableLocation(fresh, nowMs)).toBe(true);
+  it("accepts a precise position", () => {
+    expect(isUsableLocation(precise)).toBe(true);
   });
 
-  it("rejects null, imprecise, and stale positions", () => {
-    expect(isUsableLocation(null, nowMs)).toBe(false);
-    expect(isUsableLocation({ ...fresh, accuracyMeters: 80 }, nowMs)).toBe(
-      false,
-    );
-    expect(
-      isUsableLocation(
-        { ...fresh, observedAt: "2026-08-08T09:57:00.000Z" },
-        nowMs,
-      ),
-    ).toBe(false);
+  it("rejects null and imprecise positions", () => {
+    expect(isUsableLocation(null)).toBe(false);
+    expect(isUsableLocation({ ...precise, accuracyMeters: 80 })).toBe(false);
   });
 });
 

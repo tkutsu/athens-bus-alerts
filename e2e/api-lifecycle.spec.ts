@@ -238,9 +238,9 @@ test("watches location and keeps a restored stop distance current", async ({
       },
     });
     window.localStorage.setItem(
-      "athens-bus-ticker:v4",
+      "athens-bus-ticker:v5",
       JSON.stringify({
-        version: 4,
+        version: 5,
         selectedStop: { code: "400075", name: "FIRST STOP" },
         subscriptions: [],
         favorites: [],

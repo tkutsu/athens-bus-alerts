@@ -246,7 +246,7 @@ test("grays and freezes last-known arrivals and pauses predicted alerts during a
     has: page.getByRole("button", { name: /Disable notifications for line 218/ }),
   });
   const position = await trackedGroup.evaluate(element =>
-    element.style.getPropertyValue("--timeline-position"));
+    element.getAttribute("data-timeline-position"));
   await expect.poll(() => page.evaluate((key) =>
     JSON.parse(localStorage.getItem(key)!).subscriptions[0].predictedZeroAt, STORAGE_KEY,
   )).toBeNull();
@@ -321,7 +321,7 @@ test("grays and freezes last-known arrivals and pauses predicted alerts during a
   await page.clock.fastForward(20_000);
   await expect(warning).toBeVisible();
   await page.clock.fastForward(300_000);
-  await expect(trackedGroup).toHaveCSS("--timeline-position", position);
+  await expect(trackedGroup).toHaveAttribute("data-timeline-position", position!);
   await expect(page.locator(".arrival-bus-eta")).toHaveText(["8min", "4min", "0min"]);
   await expect(page.locator(".arrival-confidence-questions")).toHaveCount(3);
   await expect(page.locator(".arrival-due-check")).toHaveCount(0);
@@ -678,7 +678,7 @@ test("uses one progressive timeline with independent multi-line toggles", async 
   expect(
     await nineteenMinuteGroup.evaluate((element) =>
       Number.parseFloat(
-        getComputedStyle(element).getPropertyValue("--timeline-position"),
+        element.getAttribute("data-timeline-position")!,
       ),
     ),
   ).toBeLessThan(100);
@@ -688,8 +688,8 @@ test("uses one progressive timeline with independent multi-line toggles", async 
       .first()
       .locator(".arrival-timeline-marker-face-disabled"),
   ).toHaveCSS("background-color", "rgb(183, 187, 185)");
-  await expect(endpointGroup).toHaveCSS(
-    "--timeline-position",
+  await expect(endpointGroup).toHaveAttribute(
+    "data-timeline-position",
     "100%",
   );
   await expect(page.locator(".arrival-timeline-rail")).toHaveCSS(
@@ -1568,7 +1568,7 @@ test("accelerates and brakes for a forward ETA correction", async ({
   );
   await expect(correctedGroup).toHaveCSS(
     "transition-property",
-    "top, transform",
+    "top",
   );
   await expect(correctedGroup).toHaveCSS(
     "transition-duration",

@@ -155,16 +155,19 @@ describe("useArrivalPolling", () => {
     window.localStorage.setItem(
       ARRIVAL_CACHE_KEY,
       JSON.stringify({
-        version: 1,
-        stopCode: "400075",
-        data: {
-          arrivals: [
-            { routeCode: "2810", vehicleId: "cached", minutes: 9 },
-          ],
-          observedAt: new Date().toISOString(),
-        },
-        nextPollAt: new Date(Date.now() + 30_000).toISOString(),
-        pollIntervalMs: 30_000,
+        version: 2,
+        entries: [
+          {
+            stopCode: "400075",
+            data: {
+              arrivals: [
+                { routeCode: "2810", vehicleId: "cached", minutes: 9 },
+              ],
+              observedAt: new Date().toISOString(),
+            },
+            nextPollAt: new Date(Date.now() + 30_000).toISOString(),
+          },
+        ],
       }),
     );
 
@@ -176,7 +179,7 @@ describe("useArrivalPolling", () => {
     expect(fetchMock).not.toHaveBeenCalled();
     expect(
       JSON.parse(window.localStorage.getItem(ARRIVAL_CACHE_KEY) ?? "null")
-        .nextPollAt,
+        .entries[0].nextPollAt,
     ).toBe("2026-07-29T10:00:30.000Z");
 
     await act(async () => {

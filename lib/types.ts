@@ -44,7 +44,6 @@ export interface RouteDetails {
 
 export interface UserLocation extends Coordinates {
   accuracyMeters: number;
-  observedAt: string;
 }
 
 export interface RecentVehicle {

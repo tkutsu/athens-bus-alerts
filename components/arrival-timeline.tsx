@@ -589,7 +589,7 @@ export function ArrivalTimeline({
 
   useEffect(() => {
     if (isUnavailable) return;
-    const interval = window.setInterval(() => setNow(Date.now()), 250);
+    const interval = window.setInterval(() => setNow(Date.now()), 1_000);
     return () => window.clearInterval(interval);
   }, [isUnavailable]);
 
@@ -909,9 +909,6 @@ export function ArrivalTimeline({
             const position = atCutoff
               ? 100
               : timelinePositionPercent(shownMinutes(group.orderedItems[0]));
-            const style = {
-              "--timeline-position": `${position}%`,
-            } as CSSProperties;
             const movingBackward =
               !atCutoff &&
               correctionActive &&
@@ -945,9 +942,7 @@ export function ArrivalTimeline({
               timelineTopPixels(correctedPosition, timelineHeight);
 
             const groupStyle = {
-              ...style,
               top: `${groupTops[groupIndex]}px`,
-              "--arrival-group-translate-y": "0px",
               "--backtrack-offset": `${backwardOffset}px`,
             } as CSSProperties;
 
@@ -965,6 +960,7 @@ export function ArrivalTimeline({
                 key={group.items
                   .map((item) => item.vehicleKey)
                   .join("-")}
+                data-timeline-position={`${position}%`}
                 style={groupStyle}
               >
                 {group.orderedItems.map((arrival) => (
@@ -991,10 +987,7 @@ export function ArrivalTimeline({
               className="arrival-timeline-group arrival-timeline-group-departing"
               inert
               key={row.arrival.vehicleKey}
-              style={{
-                top,
-                "--arrival-group-translate-y": "0px",
-              } as CSSProperties}
+              style={{ top }}
             >
               <ArrivalRow
                 {...row}

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { apiError, isStopCode, oasaErrorResponse } from "@/lib/api";
+import { apiError, edgeCache, isStopCode, oasaErrorResponse } from "@/lib/api";
 import { getArrivalsForStop } from "@/lib/oasa/client";
 import { normalizeArrivals } from "@/lib/oasa/normalize";
 
@@ -13,13 +13,8 @@ const ARRIVALS_TTL_SECONDS = 15;
 const MAX_PENDING_REQUESTS = 100;
 const pendingRequests = new Map<string, Promise<Response>>();
 
-// The Worker is the origin on Cloudflare, so shared caching must go through
-// the Cache API explicitly; plain Node (next dev/start) has no `caches.default`
-// and only coalesces requests that overlap within this instance.
-function edgeCache(): Cache | undefined {
-  return (globalThis as { caches?: { default?: Cache } }).caches?.default;
-}
-
+// Plain Node (next dev/start) has no edge cache and only coalesces requests
+// that overlap within this instance.
 /** Fetches and caches one snapshot without sharing a consumable response body. */
 async function loadSnapshot(stopCode: string, cacheKey: Request, cache: Cache | undefined) {
   try {

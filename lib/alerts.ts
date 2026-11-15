@@ -112,13 +112,17 @@ function completeTrackedVehicle(
   );
 }
 
-/** Advances every selected line from its nearest bus to the next one. */
+/**
+ * Advances every selected line from its nearest bus to the next one.
+ * Pass `null` arrivals when a prediction timer fires without a fresh snapshot.
+ */
 export function evaluateSubscriptions(
   subscriptions: readonly LineSubscription[],
-  arrivals: readonly CandidateArrival[],
+  observed: readonly CandidateArrival[] | null,
   now = new Date(),
 ): SubscriptionEvaluation {
   const events: AlertEvent[] = [];
+  const arrivals = observed ?? [];
 
   const nextSubscriptions = subscriptions.map((original) => {
     let subscription = {
@@ -188,8 +192,10 @@ export function evaluateSubscriptions(
       }
 
       const predictedAt = new Date(subscription.predictedZeroAt).getTime();
-      // A bus that vanishes a minute out has arrived, so say so as it leaves the timeline.
+      // A bus that vanishes from a snapshot a minute out has arrived, so say so
+      // as it leaves the timeline. A timer tick saw nothing, so it proves nothing.
       const arrived =
+        observed !== null &&
         subscription.lastObservedMinutes !== null &&
         subscription.lastObservedMinutes <= ARRIVED_IF_MISSING_MINUTES;
       if (predictedAt > now.getTime() && !arrived) return subscription;
