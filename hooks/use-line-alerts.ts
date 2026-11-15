@@ -37,7 +37,7 @@ export function useLineAlerts({
   }, [subscriptions]);
 
   const process = useCallback(
-    (candidates: readonly CandidateArrival[], now: Date) => {
+    (candidates: readonly CandidateArrival[] | null, now: Date) => {
       const evaluation = evaluateSubscriptions(subscriptionsRef.current, candidates, now);
       subscriptionsRef.current = evaluation.subscriptions;
       processedSubscriptionsRef.current = new Set(evaluation.subscriptions);
@@ -71,7 +71,7 @@ export function useLineAlerts({
     if (!nextPredicted) return;
     const delay = Math.max(0, Date.parse(nextPredicted) - Date.now());
     const timeout = window.setTimeout(
-      () => process([], new Date()),
+      () => process(null, new Date()),
       Math.min(delay, 2_147_000_000),
     );
     return () => window.clearTimeout(timeout);

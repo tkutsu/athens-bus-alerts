@@ -2,7 +2,6 @@ import { z } from "zod";
 import type { Arrival } from "@/lib/types";
 
 export const ARRIVAL_CACHE_KEY = "athens-bus-ticker:arrivals:v2";
-const LEGACY_ARRIVAL_CACHE_KEY = "athens-bus-ticker:arrivals:v1";
 const MAX_CACHED_STOPS = 5;
 
 export interface ArrivalsPayload {
@@ -40,22 +39,12 @@ const cacheSchema = z.object({
   entries: z.array(scheduleSchema).max(MAX_CACHED_STOPS),
 });
 
-const legacyCacheSchema = scheduleSchema.extend({
-  version: z.literal(1),
-  pollIntervalMs: z.number().positive(),
-});
-
 function readCache(): CachedArrivalSchedule[] {
   try {
-    const raw =
-      window.localStorage.getItem(ARRIVAL_CACHE_KEY) ??
-      window.localStorage.getItem(LEGACY_ARRIVAL_CACHE_KEY);
+    const raw = window.localStorage.getItem(ARRIVAL_CACHE_KEY);
     if (!raw) return [];
-    const value: unknown = JSON.parse(raw);
-    const current = cacheSchema.safeParse(value);
-    if (current.success) return current.data.entries;
-    const legacy = legacyCacheSchema.safeParse(value);
-    return legacy.success ? [legacy.data] : [];
+    const cache = cacheSchema.safeParse(JSON.parse(raw));
+    return cache.success ? cache.data.entries : [];
   } catch {
     return [];
   }
@@ -97,13 +86,10 @@ export function writeCachedArrivals(
 }
 
 export function clearCachedArrivals(): void {
-  if (typeof window !== "undefined") {
-    for (const key of [ARRIVAL_CACHE_KEY, LEGACY_ARRIVAL_CACHE_KEY]) {
-      try {
-        window.localStorage.removeItem(key);
-      } catch {
-        // Clearing active tracking must still work when storage is unavailable.
-      }
-    }
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(ARRIVAL_CACHE_KEY);
+  } catch {
+    // Clearing active tracking must still work when storage is unavailable.
   }
 }

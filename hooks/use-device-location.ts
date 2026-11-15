@@ -39,7 +39,6 @@ export function useDeviceLocation({
       setUserLocation({
         ...nextCoordinates,
         accuracyMeters: position.coords.accuracy,
-        observedAt: new Date(position.timestamp).toISOString(),
       });
       if (
         !force &&
@@ -116,6 +115,8 @@ export function useDeviceLocation({
         (position) => applyPosition(position),
         (locationError) => {
           if (locationError.code === 1) locationDeniedRef.current = true;
+          // Once the device loses its position, the last fix is a guess.
+          if (locationError.code !== 3) setUserLocation(null);
         },
         {
           // Walking time needs GPS-grade fixes; network positions are too coarse to use.

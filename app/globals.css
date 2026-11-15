@@ -734,21 +734,15 @@ textarea:disabled {
 }
 
 .arrival-timeline-group {
-  --arrival-group-translate-y: -50%;
-
   position: absolute;
   z-index: 2;
   right: 0;
   left: 0;
-  top: clamp(1.25rem, var(--timeline-position), calc(100% - 4.5rem));
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
   perspective: 32rem;
-  transform: translateY(var(--arrival-group-translate-y));
-  transition:
-    top 600ms linear,
-    transform 600ms linear;
+  transition: top 600ms linear;
   /* Its own layer moves as one image, so the text and the SVG arrow can't snap
      to different pixels while the bus glides down the rail. */
   will-change: transform;
@@ -765,11 +759,6 @@ textarea:disabled {
 }
 
 .arrival-timeline-group-static {
-  --arrival-cutoff-divider-gap: 1rem;
-  --arrival-group-translate-y: calc(-100% + 1.125rem);
-
-  /* Keep the final cutoff row comfortably above the bottom divider. */
-  top: calc(100% - var(--arrival-cutoff-divider-gap) - 1.125rem);
   transition: none;
 }
 
@@ -1477,12 +1466,11 @@ textarea:disabled {
 
 @keyframes bus-group-backtrack {
   from {
-    transform: translateY(var(--arrival-group-translate-y))
-      translateY(var(--backtrack-offset));
+    transform: translateY(var(--backtrack-offset));
   }
 
   to {
-    transform: translateY(var(--arrival-group-translate-y)) translateY(0);
+    transform: translateY(0);
   }
 }
 

@@ -215,6 +215,18 @@ describe("evaluateSubscriptions", () => {
     expect(result.subscriptions[1].trackedVehicleKey).toBe("5000:b");
   });
 
+  it("does not call a bus due when a timer fires without a snapshot", () => {
+    const tracking = subscription("218", {
+      trackedVehicleKey: "2810:a",
+      predictedZeroAt: new Date(NOW.getTime() + 50_000).toISOString(),
+      lastObservedMinutes: 1,
+    });
+    const result = evaluateSubscriptions([tracking], null, NOW);
+
+    expect(result.events).toEqual([]);
+    expect(result.subscriptions[0].trackedVehicleKey).toBe("2810:a");
+  });
+
   it("uses a missing vehicle prediction but discards stale predictions", () => {
     const active = subscription("218", {
       trackedVehicleKey: "2810:a",

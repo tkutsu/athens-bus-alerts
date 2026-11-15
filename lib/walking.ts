@@ -3,20 +3,20 @@ import type { Coordinates, UserLocation } from "@/lib/types";
 
 const WALK_DETOUR_FACTOR = 1.3;
 const WALK_SPEED_METERS_PER_SECOND = 1.25;
-const MAX_LOCATION_AGE_MS = 120_000;
 const MAX_LOCATION_ACCURACY_METERS = 75;
 
-/** Rejects old or imprecise positions before calculating walking alerts. */
+/**
+ * Rejects imprecise positions before calculating walking alerts. Age is not
+ * checked: a live watch only reports movement, so a quiet one means you stayed put.
+ */
 export function isUsableLocation(
   location: UserLocation | null,
-  nowMs = Date.now(),
 ): location is UserLocation {
   return Boolean(
     location &&
       Number.isFinite(location.latitude) &&
       Number.isFinite(location.longitude) &&
-      location.accuracyMeters <= MAX_LOCATION_ACCURACY_METERS &&
-      nowMs - new Date(location.observedAt).getTime() <= MAX_LOCATION_AGE_MS,
+      location.accuracyMeters <= MAX_LOCATION_ACCURACY_METERS,
   );
 }
 
