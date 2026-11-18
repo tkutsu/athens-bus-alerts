@@ -21,7 +21,9 @@ let catalogueRequest: Promise<Catalogue> | null = null;
 /** Loads the static stop catalogue once and shares it across client components. */
 function loadCatalogue(): Promise<Catalogue> {
   if (!catalogueRequest) {
-    catalogueRequest = fetch("/data/stops.json", { cache: "force-cache" })
+    // Follows the file's caching headers rather than any cached copy forever,
+    // so a re-synced catalogue reaches browsers that hold an older one.
+    catalogueRequest = fetch("/data/stops.json")
       .then(async (response) => {
         if (!response.ok) {
           throw new Error("Could not load the stop catalogue.");
