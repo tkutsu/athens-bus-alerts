@@ -49,26 +49,6 @@ export function linesNear(
   return RAIL_LINES.filter((line) => lines.has(line));
 }
 
-/**
- * The lines a bus reaches after your stop, leaving out those you already have
- * at it: what riding this bus adds. Circular routes wrap past their start.
- */
-export function linesAhead(
-  route: { stops: readonly (Coordinates & { code: string })[]; isCircular: boolean },
-  fromCode: string,
-  stations: readonly RailStation[],
-): RailLine[] {
-  const from = route.stops.findIndex((stop) => stop.code === fromCode);
-  if (from === -1) return [];
-
-  const ahead = route.isCircular
-    ? [...route.stops.slice(from + 1), ...route.stops.slice(0, from)]
-    : route.stops.slice(from + 1);
-  const here = new Set(linesNear(route.stops[from], stations));
-  const reached = new Set(ahead.flatMap((stop) => linesNear(stop, stations)));
-  return RAIL_LINES.filter((line) => reached.has(line) && !here.has(line));
-}
-
 /** The station a stop is "by": the nearest metro in range, else the nearest tram. */
 export function stationAt(
   point: Coordinates,

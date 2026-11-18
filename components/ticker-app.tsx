@@ -25,14 +25,13 @@ import { MetroSwitch, ThemeSwitch } from "@/components/preference-switches";
 import { Toast } from "@/components/toast";
 import { useDeviceLocation } from "@/hooks/use-device-location";
 import { useLineAlerts } from "@/hooks/use-line-alerts";
-import { useLinesAhead } from "@/hooks/use-lines-ahead";
 import { StopRouteLoader } from "@/lib/stop-routes";
 import { formatTransitName } from "@/lib/display";
-import { loadRouteDetails } from "@/lib/route-details";
 import type {
   Coordinates,
   Favorite,
   LineSubscription,
+  RouteDetails,
   ServingRoute,
   StopSummary,
 } from "@/lib/types";
@@ -396,15 +395,6 @@ export function TickerApp() {
     });
   }, [hasArrivalData, confidenceSnapshot, routes, selectedStop?.code]);
 
-  const shownRouteCodes = useMemo(
-    () => timelineArrivals.map((arrival) => arrival.routeCode),
-    [timelineArrivals],
-  );
-  const linesAheadByRoute = useLinesAhead(
-    selectedStop?.code ?? null,
-    shownRouteCodes,
-  );
-
   const walkSeconds = useMemo(
     () =>
       selectedStop && isUsableLocation(userLocation)
@@ -571,8 +561,15 @@ export function TickerApp() {
       selectedStopRef.current?.code === stop.code;
     try {
       if (!(await ensureNotificationPermission()) || !isCurrent()) return;
-      // Selection still works when the optional direction details are unavailable.
-      const detail = (await loadRouteDetails(routeCode)) ?? undefined;
+      let detail: RouteDetails | undefined;
+      try {
+        const response = await fetch(`/api/routes/${routeCode}`, {
+          signal: AbortSignal.timeout(12_000),
+        });
+        if (response.ok) detail = (await response.json()) as RouteDetails;
+      } catch {
+        // Selection can still work when optional direction metadata is unavailable.
+      }
       if (!isCurrent()) return;
       setDirectionWarning(detail
         ? null
@@ -823,7 +820,6 @@ export function TickerApp() {
           // A new stop is a fresh reveal, not every old bus departing at once.
           key={selectedStop.code}
           arrivals={timelineArrivals}
-          linesAhead={linesAheadByRoute}
           isLoading={arrivalsLoading || isLoadingStop || arrivalData === null}
           isUnavailable={arrivalsUnavailable}
           observedAt={arrivalData?.observedAt ?? null}

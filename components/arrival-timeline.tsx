@@ -10,9 +10,7 @@ import {
   type CSSProperties,
 } from "react";
 import { BusFace } from "@/components/bus-face";
-import { MetroChips } from "@/components/metro-chips";
 import { formatTransitName } from "@/lib/display";
-import { describeLines, type RailLine } from "@/lib/metro";
 import type { VehicleConfidence } from "@/lib/vehicle-confidence";
 import { reachMinutes } from "@/lib/walking";
 
@@ -32,11 +30,6 @@ interface ArrivalTimelineProps {
   isLoading: boolean;
   isUnavailable?: boolean;
   observedAt: string | null;
-  /**
-   * Metro and tram lines each route reaches after this stop. Kept apart from
-   * `arrivals`, since a new arrivals array counts as a fresh snapshot.
-   */
-  linesAhead?: ReadonlyMap<string, RailLine[]>;
   onToggleRoute: (routeCode: string, lineId: string) => void;
   /** Takes over your bus's circle, once its tag has merged in, to pull it into the stop. */
   onTargetHome?: (bus: HTMLElement) => void;
@@ -301,7 +294,6 @@ function ArrivalRow({
   estimatedEta,
   flippedBack = false,
   isUnavailable,
-  linesAhead = [],
   motion,
   muted,
   onToggleRoute,
@@ -314,7 +306,6 @@ function ArrivalRow({
   callout?: boolean;
   flippedBack?: boolean;
   isUnavailable: boolean;
-  linesAhead?: readonly RailLine[];
   motion?: "arriving" | "departing" | "homing";
   onToggleRoute: (routeCode: string, lineId: string) => void;
 }) {
@@ -443,9 +434,7 @@ function ArrivalRow({
         <button
           aria-label={`${
             selected ? "Disable" : "Enable"
-          } notifications for line ${lineName}, ${timingLabel}${
-            linesAhead.length > 0 ? `, reaches ${describeLines(linesAhead)}` : ""
-          }`}
+          } notifications for line ${lineName}, ${timingLabel}`}
           aria-pressed={selected}
           className={`arrival-bus ${
             selected ? "arrival-bus-selected" : ""
@@ -463,7 +452,6 @@ function ArrivalRow({
               arrival.destination ?? arrival.description,
             )}
           </span>
-          <MetroChips label={null} lines={linesAhead} />
         </button>
       </span>
     </div>
@@ -547,7 +535,6 @@ export function ArrivalTimeline({
   arrivals,
   isLoading,
   isUnavailable = false,
-  linesAhead,
   observedAt,
   onToggleRoute,
   onTargetHome,
@@ -990,7 +977,6 @@ export function ArrivalTimeline({
                     }
                     isUnavailable={isUnavailable}
                     key={arrival.vehicleKey}
-                    linesAhead={linesAhead?.get(arrival.routeCode)}
                     motion={arrivingKeys.has(arrival.vehicleKey) ? "arriving" : undefined}
                     onToggleRoute={onToggleRoute}
                   />
@@ -1009,7 +995,6 @@ export function ArrivalTimeline({
               <ArrivalRow
                 {...row}
                 isUnavailable={false}
-                linesAhead={linesAhead?.get(row.arrival.routeCode)}
                 motion={homing ? "homing" : "departing"}
                 onToggleRoute={onToggleRoute}
               />
