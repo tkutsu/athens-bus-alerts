@@ -4,7 +4,6 @@ import {
   approach,
   closestMetro,
   describeLines,
-  linesAhead,
   linesNear,
   stationAt,
   stickyClosest,
@@ -36,33 +35,6 @@ describe("linesNear", () => {
 
   it("ignores stations beyond the chip radius", () => {
     expect(linesNear(north(350), stations)).toEqual([]);
-  });
-});
-
-describe("linesAhead", () => {
-  const stop = (code: string, meters: number) => ({ code, ...north(meters) });
-  // South of Syntagma, through it, on to Panepistimio.
-  const route = {
-    isCircular: false,
-    stops: [stop("a", -1_500), stop("b", -50), stop("c", 900), stop("d", 2_000)],
-  };
-
-  it("lists the lines reached after your stop", () => {
-    expect(linesAhead(route, "a", stations)).toEqual(["M2", "M3", "T6"]);
-  });
-
-  it("leaves out lines you already have at your stop", () => {
-    // At b you're already at Syntagma (M2, M3, T6); Panepistimio adds nothing new.
-    expect(linesAhead(route, "b", stations)).toEqual([]);
-  });
-
-  it("ignores stops behind you unless the route loops", () => {
-    expect(linesAhead(route, "c", stations)).toEqual([]);
-    expect(linesAhead({ ...route, isCircular: true }, "d", stations)).toEqual(["M2", "M3", "T6"]);
-  });
-
-  it("returns nothing when the stop isn't on the route", () => {
-    expect(linesAhead(route, "zz", stations)).toEqual([]);
   });
 });
 
