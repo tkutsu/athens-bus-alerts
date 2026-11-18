@@ -1331,15 +1331,16 @@ test("saves a multi-line favorite to v5 storage", async ({ page }) => {
     });
 
   // Enabling the favorite brings its line back after the rider clears it.
-  await metroThree.click();
-  await expect(metroThree).toHaveAttribute("aria-pressed", "false");
+  const clearMetroThree = railLines.getByRole("button", { name: "Clear metro line 3" });
+  await clearMetroThree.click();
+  await expect(metroThree).toBeVisible();
   await page
     .locator("footer")
     .getByRole("button", { name: "Favorites" })
     .click();
   await expect(dialog.getByText("heading for metro line 3")).toBeAttached();
   await dialog.getByRole("button", { name: "Enable", exact: true }).click();
-  await expect(metroThree).toHaveAttribute("aria-pressed", "true");
+  await expect(clearMetroThree).toBeVisible();
 });
 
 test("opens favorite actions outside the scrolling list", async ({ page }) => {

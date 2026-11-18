@@ -70,7 +70,7 @@ async function openNearby(context: BrowserContext, page: Page, at = north(0)) {
   await page.getByPlaceholder("Search stop name").click();
 }
 
-test("lines start off, only one can be selected, and the choice persists", async ({
+test("picking a line folds the row to it, clearing brings the choices back, and it persists", async ({
   context,
   page,
 }) => {
@@ -81,16 +81,21 @@ test("lines start off, only one can be selected, and the choice persists", async
   await expect(page.getByRole("option", { name: /μακρια/ }).locator(".rail-badge")).toHaveCount(0);
 
   const lines = page.getByRole("group", { name: "Line you're heading for" });
-  await expect(lines.locator('[aria-pressed="true"]')).toHaveCount(0);
+  await expect(lines.getByRole("button")).toHaveCount(5);
   await lines.getByRole("button", { name: "metro line 2" }).click();
+  await expect(lines.getByRole("button")).toHaveCount(1);
+  await expect(lines.getByRole("button", { name: "Clear metro line 2" })).toBeFocused();
+  await expect(lines.locator(".rail-badge")).toHaveText(["M2"]);
   await page.getByPlaceholder("Search stop name").click();
   await expect(syntagma.locator(".rail-badge")).toHaveText(["M2"]);
+  await lines.getByRole("button", { name: "Clear metro line 2" }).click();
+  await expect(lines.getByRole("button")).toHaveCount(5);
+  await expect(lines.getByRole("button", { name: "metro line 1" })).toBeFocused();
   await lines.getByRole("button", { name: "metro line 3" }).click();
-  await expect(lines.getByRole("button", { name: "metro line 2" })).toHaveAttribute("aria-pressed", "false");
   await page.getByPlaceholder("Search stop name").click();
   await expect(syntagma.locator(".rail-badge")).toHaveText(["M3"]);
+  await lines.getByRole("button", { name: "Clear metro line 3" }).click();
   await lines.getByRole("button", { name: "tram line 6" }).click();
-  await expect(lines.locator('[aria-pressed="true"]')).toHaveCount(1);
   await page.getByPlaceholder("Search stop name").click();
   await expect(syntagma.locator(".rail-badge")).toHaveText(["T6"]);
   // Trams get the closest-station line too, not just the metro.
@@ -98,10 +103,9 @@ test("lines start off, only one can be selected, and the choice persists", async
   await expect(page.locator(".closest-station-line")).toContainText("ζάππειο");
 
   await page.reload();
-  await expect(lines.getByRole("button", { name: "tram line 6" })).toHaveAttribute("aria-pressed", "true");
-  await expect(lines.locator('[aria-pressed="true"]')).toHaveCount(1);
-  await lines.getByRole("button", { name: "tram line 6" }).click();
-  await expect(lines.locator('[aria-pressed="true"]')).toHaveCount(0);
+  await expect(lines.getByRole("button")).toHaveCount(1);
+  await lines.getByRole("button", { name: "Clear tram line 6" }).click();
+  await expect(lines.getByRole("button")).toHaveCount(5);
 });
 
 test("tapping a line on the map picks or clears it", async ({ context, page }) => {
@@ -112,17 +116,18 @@ test("tapping a line on the map picks or clears it", async ({ context, page }) =
   await expect(mapBadge).not.toHaveClass(/rail-badge-off/);
 
   await mapBadge.click();
-  await expect(lines.getByRole("button", { name: "metro line 2" })).toHaveAttribute("aria-pressed", "true");
+  await expect(lines.getByRole("button", { name: "Clear metro line 2" })).toBeVisible();
   await expect(mapBadge).not.toHaveClass(/rail-badge-off/);
 
+  await lines.getByRole("button", { name: "Clear metro line 2" }).click();
   await lines.getByRole("button", { name: "metro line 3" }).click();
   await expect(mapBadge).toHaveClass(/rail-badge-off/);
 
+  // The map can switch lines in one tap, straight past the row.
   await mapBadge.click();
-  await expect(lines.getByRole("button", { name: "metro line 2" })).toHaveAttribute("aria-pressed", "true");
-  await expect(lines.getByRole("button", { name: "metro line 3" })).toHaveAttribute("aria-pressed", "false");
+  await expect(lines.getByRole("button", { name: "Clear metro line 2" })).toBeVisible();
   await mapBadge.click();
-  await expect(lines.locator('[aria-pressed="true"]')).toHaveCount(0);
+  await expect(lines.getByRole("button")).toHaveCount(5);
   await expect(page.locator('.map-station [data-line="M3"]')).not.toHaveClass(/rail-badge-off/);
 });
 
@@ -130,15 +135,16 @@ test("both tram lines use yellow in light and dark themes", async ({ context, pa
   await page.emulateMedia({ colorScheme: "light" });
   await openApp(context, page);
   const lines = page.getByRole("group", { name: "Line you're heading for" });
+  const badge = lines.locator(".rail-badge");
   for (const line of [6, 7]) {
-    const badge = lines.getByRole("button", { name: `tram line ${line}` });
-    await badge.click();
+    await lines.getByRole("button", { name: `tram line ${line}` }).click();
     await expect(badge).toHaveCSS("background-color", "rgb(255, 218, 31)");
     await expect(badge).toHaveCSS("color", "rgb(48, 38, 0)");
     await page.getByRole("switch", { name: "Use dark mode" }).click();
     await expect(badge).toHaveCSS("background-color", "rgb(255, 218, 31)");
     await expect(badge).toHaveCSS("color", "rgb(48, 38, 0)");
     await page.getByRole("switch", { name: "Use light mode" }).click();
+    await lines.getByRole("button", { name: `Clear tram line ${line}` }).click();
   }
 });
 
@@ -242,6 +248,7 @@ for (const width of [390, 1280]) {
     }
 
     await page.locator(".selected-stop-row").click();
+    await lines.getByRole("button", { name: "Clear metro line 3" }).click();
     await lines.getByRole("button", { name: "tram line 6" }).click();
     await page.locator(".selected-stop-row").click();
     await expect(badges).toHaveText(["T6 3 stops", "T6 3 stops"]);
