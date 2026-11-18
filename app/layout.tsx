@@ -2,15 +2,8 @@ import type { Metadata, Viewport } from "next";
 import { StartupSplash } from "@/components/startup-screen";
 import "./globals.css";
 
-// Applies saved preferences before first paint, so nothing flashes on reload.
-const preferenceInitializationScript = `
+const themeInitializationScript = `
   (() => {
-    let metro = "on";
-    try {
-      if (window.localStorage.getItem("oasa-metro") === "off") metro = "off";
-    } catch {}
-    document.documentElement.dataset.metro = metro;
-
     let theme = "light";
     try {
       const storedTheme = window.localStorage.getItem("oasa-theme");
@@ -60,7 +53,7 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <head>
         <script
-          dangerouslySetInnerHTML={{ __html: preferenceInitializationScript }}
+          dangerouslySetInnerHTML={{ __html: themeInitializationScript }}
         />
       </head>
       <body>

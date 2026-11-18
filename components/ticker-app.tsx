@@ -21,7 +21,7 @@ import { ClosestMetro } from "@/components/closest-metro";
 import { FavoritesDialog } from "@/components/favorites-dialog";
 import { pullIntoStop } from "@/components/pull-in";
 import { Icon } from "@/components/icon";
-import { MetroSwitch, ThemeSwitch } from "@/components/preference-switches";
+import { ThemeSwitch } from "@/components/theme-switch";
 import { Toast } from "@/components/toast";
 import { useDeviceLocation } from "@/hooks/use-device-location";
 import { useLineAlerts } from "@/hooks/use-line-alerts";
@@ -40,6 +40,7 @@ import { useArrivalPolling } from "@/hooks/use-arrival-polling";
 import { useStopCatalog } from "@/hooks/use-stop-catalog";
 import { StopCombobox } from "@/components/stop-combobox";
 import { StopName, StopStationNote } from "@/components/stop-name";
+import { RailLineFilter } from "@/components/rail-badges";
 import { StopMap } from "@/components/stop-map";
 import { ArrivalWarning, ServiceWarning } from "@/components/service-warning";
 import {
@@ -774,6 +775,7 @@ export function TickerApp() {
             }
           >
             <div className="stop-picker-shell">
+              <RailLineFilter />
               <StopMap
                 catalogError={catalogError}
                 catalogLoading={catalogLoading}
@@ -865,10 +867,7 @@ export function TickerApp() {
 
       <footer className="mt-auto grid shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-3 pt-3 text-xs text-ink/45">
         <p>Live data by OASA</p>
-        <div className="flex items-center gap-2">
-          <ThemeSwitch />
-          <MetroSwitch />
-        </div>
+        <ThemeSwitch />
         <button
           className="small-action justify-self-end underline"
           onClick={forgetEverything}
