@@ -44,6 +44,21 @@ export function ServiceWarning({
   );
 }
 
+const relativeTime = new Intl.RelativeTimeFormat("en");
+const AGE_UNITS = [
+  ["day", 86_400],
+  ["hour", 3_600],
+  ["minute", 60],
+] as const;
+
+/** Phrases an age in its largest whole unit, e.g. "4 days ago". */
+export function formatAge(seconds: number): string {
+  for (const [unit, size] of AGE_UNITS) {
+    if (seconds >= size) return relativeTime.format(-Math.floor(seconds / size), unit);
+  }
+  return relativeTime.format(-seconds, "second");
+}
+
 /** Shows the next retry and the age of the last successful arrivals snapshot. */
 export function ArrivalWarning({
   error,
@@ -102,9 +117,7 @@ export function ArrivalWarning({
     >
       {ageSeconds !== null && (
         <p className="mt-1">
-          Last updated {ageSeconds < 60
-            ? `${ageSeconds} seconds`
-            : `${Math.floor(ageSeconds / 60)} ${ageSeconds < 120 ? "minute" : "minutes"}`} ago.
+          Last updated {formatAge(ageSeconds)}.
         </p>
       )}
     </ServiceWarning>
