@@ -20,7 +20,7 @@ import {
 import { FavoritesDialog } from "@/components/favorites-dialog";
 import { pullIntoStop } from "@/components/pull-in";
 import { Icon } from "@/components/icon";
-import { ThemeSwitch } from "@/components/theme-switch";
+import { MetroSwitch, ThemeSwitch } from "@/components/preference-switches";
 import { Toast } from "@/components/toast";
 import { useDeviceLocation } from "@/hooks/use-device-location";
 import { useLineAlerts } from "@/hooks/use-line-alerts";
@@ -851,7 +851,10 @@ export function TickerApp() {
 
       <footer className="mt-auto grid shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-3 pt-3 text-xs text-ink/45">
         <p>Live data by OASA</p>
-        <ThemeSwitch />
+        <div className="flex items-center gap-2">
+          <ThemeSwitch />
+          <MetroSwitch />
+        </div>
         <button
           className="small-action justify-self-end underline"
           onClick={forgetEverything}
