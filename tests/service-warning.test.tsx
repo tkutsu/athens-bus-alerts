@@ -1,7 +1,21 @@
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ArrivalWarning } from "@/components/service-warning";
+import { ArrivalWarning, formatAge } from "@/components/service-warning";
 import { ApiRequestError } from "@/lib/client-api";
+
+describe("formatAge", () => {
+  it.each([
+    [0, "0 seconds ago"],
+    [45, "45 seconds ago"],
+    [60, "1 minute ago"],
+    [3_599, "59 minutes ago"],
+    [3_600, "1 hour ago"],
+    [86_399, "23 hours ago"],
+    [5_935 * 60, "4 days ago"],
+  ])("phrases %i seconds as %s", (seconds, text) => {
+    expect(formatAge(seconds)).toBe(text);
+  });
+});
 
 describe("ArrivalWarning retry status", () => {
   beforeEach(() => {
