@@ -121,6 +121,7 @@ for (const action of ["forget", "change stop"] as const) {
     await expect.poll(() => requested).toBe(true);
     if (action === "forget") {
       page.once("dialog", (dialog) => dialog.accept());
+      await page.getByRole("button", { name: "Favorites" }).click();
       await page.getByRole("button", { name: "Forget saved data" }).click();
     } else {
       await page.getByRole("button", { name: /first stop.*change/i }).click();
@@ -180,6 +181,7 @@ test("storage write and removal failures leave tracking usable", async ({ page }
   await page.getByRole("button", { name: disabledLine }).click();
   await expect(page.getByRole("button", { name: enabledLine })).toBeVisible();
   page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Favorites" }).click();
   await page.getByRole("button", { name: "Forget saved data" }).click();
   await expect(page.getByRole("combobox")).toBeVisible();
   expect(errors).toEqual([]);

@@ -20,6 +20,7 @@ interface FavoritesDialogProps {
   selectedStop: StopSummary | null;
   subscriptions: LineSubscription[];
   onEnable: (favorite: Favorite) => Promise<void>;
+  onForget: () => void;
   setStatus: (message: string) => void;
   setError: (message: string) => void;
 }
@@ -45,6 +46,7 @@ export function FavoritesDialog({
   selectedStop,
   subscriptions,
   onEnable,
+  onForget,
   setStatus,
   setError,
 }: FavoritesDialogProps) {
@@ -319,6 +321,11 @@ export function FavoritesDialog({
                 ))}
               </div>
             )}
+          </div>
+          <div className="flex justify-end border-t border-ink/15 pt-3">
+            <button className="small-action underline" onClick={onForget} type="button">
+              Forget saved data
+            </button>
           </div>
         </div>
         {favoriteMenu && (() => {
