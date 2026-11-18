@@ -1293,6 +1293,9 @@ test("saves a multi-line favorite to v5 storage", async ({ page }) => {
     .getByRole("button", { name: /Enable notifications for line 500/ })
     .first()
     .click();
+  const railLines = page.getByRole("group", { name: "Line you're heading for" });
+  const metroThree = railLines.getByRole("button", { name: "metro line 3" });
+  await metroThree.click();
 
   await page
     .locator("footer")
@@ -1313,6 +1316,7 @@ test("saves a multi-line favorite to v5 storage", async ({ page }) => {
           lineIds: state.favorites[0]?.routes.map(
             (item: { lineId: string }) => item.lineId,
           ),
+          railLine: state.favorites[0]?.railLine,
           subscriptions: state.subscriptions.map(
             (item: { lineId: string }) => item.lineId,
           ),
@@ -1322,8 +1326,20 @@ test("saves a multi-line favorite to v5 storage", async ({ page }) => {
     .toEqual({
       version: 5,
       lineIds: ["218", "500"],
+      railLine: "M3",
       subscriptions: ["218", "500"],
     });
+
+  // Enabling the favorite brings its line back after the rider clears it.
+  await metroThree.click();
+  await expect(metroThree).toHaveAttribute("aria-pressed", "false");
+  await page
+    .locator("footer")
+    .getByRole("button", { name: "Favorites" })
+    .click();
+  await expect(dialog.getByText("heading for metro line 3")).toBeAttached();
+  await dialog.getByRole("button", { name: "Enable", exact: true }).click();
+  await expect(metroThree).toHaveAttribute("aria-pressed", "true");
 });
 
 test("opens favorite actions outside the scrolling list", async ({ page }) => {
