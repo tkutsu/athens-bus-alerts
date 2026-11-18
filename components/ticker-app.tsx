@@ -17,6 +17,7 @@ import {
   readStoredState,
   writeStoredState,
 } from "@/lib/storage";
+import { ClosestMetro } from "@/components/closest-metro";
 import { FavoritesDialog } from "@/components/favorites-dialog";
 import { pullIntoStop } from "@/components/pull-in";
 import { Icon } from "@/components/icon";
@@ -673,6 +674,8 @@ export function TickerApp() {
           <Icon name="star" className="size-4 shrink-0 -translate-y-px" />
         </button>
       </header>
+
+      <ClosestMetro location={userLocation} onHeadsUp={setStatus} />
 
       {showArrivalWarning && (
         <ArrivalWarning
