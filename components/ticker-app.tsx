@@ -152,6 +152,7 @@ export function TickerApp() {
   );
   const {
     stops: catalogStops,
+    stations: catalogStations,
     error: catalogError,
     isLoading: catalogLoading,
   } = useStopCatalog();
@@ -782,6 +783,7 @@ export function TickerApp() {
                 onRefreshLocation={() => locate(true)}
                 onSelectStop={chooseStop}
                 selectedStop={selectedStop}
+                stations={catalogStations}
                 stops={catalogStops}
               />
               <StopCombobox

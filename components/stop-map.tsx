@@ -11,7 +11,18 @@ import {
   type CatalogStop,
 } from "@/lib/stop-catalog";
 import { formatTransitName } from "@/lib/display";
+import type { RailLine, RailStation } from "@/lib/metro";
 import type { Coordinates, StopSummary } from "@/lib/types";
+
+/** The same roundels as on stop names; line codes are fixed, so the HTML is safe. */
+function stationIconHtml(lines: readonly RailLine[]): string {
+  return `<span class="map-station">${lines
+    .map(
+      (line) =>
+        `<span class="metro-chip metro-chip-${line.toLowerCase()}">${line.slice(1)}</span>`,
+    )
+    .join("")}</span>`;
+}
 
 interface StopMapProps {
   catalogError: string | null;
@@ -22,6 +33,7 @@ interface StopMapProps {
   selectedStop: StopSummary | null;
   onRefreshLocation: () => void;
   onSelectStop: (stop: StopSummary) => void;
+  stations: readonly RailStation[];
   stops: readonly CatalogStop[];
 }
 
@@ -48,11 +60,13 @@ export function StopMap({
   selectedStop,
   onRefreshLocation,
   onSelectStop,
+  stations,
   stops,
 }: StopMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<LeafletMap | null>(null);
   const markersRef = useRef<LayerGroup | null>(null);
+  const stationsRef = useRef<LayerGroup | null>(null);
   const userMarkerRef = useRef<Marker | null>(null);
   const leafletRef = useRef<typeof import("leaflet") | null>(null);
   const selectStopRef = useRef(onSelectStop);
@@ -112,6 +126,11 @@ export function StopMap({
         maxZoom: 19,
       }).addTo(map);
 
+      // Stations sit under the stop dots (overlay pane, 400) and never take a tap.
+      const stationPane = map.createPane("stations");
+      stationPane.style.zIndex = "350";
+      stationPane.style.pointerEvents = "none";
+      stationsRef.current = L.layerGroup().addTo(map);
       markersRef.current = L.layerGroup().addTo(map);
       mapRef.current = map;
       setMapReady(true);
@@ -175,6 +194,7 @@ export function StopMap({
       mapRef.current?.remove();
       mapRef.current = null;
       markersRef.current = null;
+      stationsRef.current = null;
       userMarkerRef.current = null;
       updateVisibleStopsRef.current = null;
     };
@@ -214,6 +234,27 @@ export function StopMap({
         .addTo(markers);
     }
   }, [selectedStop?.code, visibleStops]);
+
+  /** Marks every metro and tram station with its line roundels. */
+  useEffect(() => {
+    const L = leafletRef.current;
+    const layer = stationsRef.current;
+    if (!L || !mapReady || !layer) return;
+
+    layer.clearLayers();
+    for (const station of stations) {
+      L.marker([station.latitude, station.longitude], {
+        icon: L.divIcon({
+          className: "metro-layer map-station-anchor",
+          html: stationIconHtml(station.lines),
+          iconSize: [0, 0],
+        }),
+        interactive: false,
+        keyboard: false,
+        pane: "stations",
+      }).addTo(layer);
+    }
+  }, [mapReady, stations]);
 
   /** Updates the device location marker. */
   useEffect(() => {
