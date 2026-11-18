@@ -358,6 +358,21 @@ test("keeps a failed stop's route error beside selection until Retry succeeds", 
   await expect(page.getByText("All quiet", { exact: true })).toBeVisible();
 });
 
+test("shows one Greece-only warning instead of retries when OASA is geo-blocked", async ({ page }) => {
+  await mockStopData(page, []);
+  await page.route("**/api/stops/400075", (route) => route.fulfill({ status: 502, json: { error: {
+    code: "OASA_GEO_BLOCKED", message: "OASA only answers requests from Greece.", retryable: false,
+  } } }));
+  await page.goto("/");
+  await page.getByRole("combobox", { name: "Search and choose a stop" }).click();
+  await page.getByRole("option", { name: /hsap n\. falhroy/i }).click();
+  const warning = page.locator(".service-warning");
+  await expect(warning).toHaveCount(1);
+  await expect(warning).toContainText("Live data only works in Greece");
+  await expect(warning).not.toContainText("Couldn't load lines for");
+  await expect(warning.getByRole("button", { name: "Retry", exact: true })).toHaveCount(0);
+});
+
 test("distinguishes unusable OASA data, app failures, and offline arrivals", async ({ page, context }) => {
   await page.clock.install();
   await mockStopData(page);

@@ -85,6 +85,7 @@ export interface ApiErrorPayload {
     code:
       | "INVALID_INPUT"
       | "OASA_UNAVAILABLE"
+      | "OASA_GEO_BLOCKED"
       | "OASA_INVALID_RESPONSE";
     message: string;
     retryable: boolean;

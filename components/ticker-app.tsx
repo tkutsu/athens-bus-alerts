@@ -9,7 +9,7 @@ import {
   useState,
 } from "react";
 import type { AlertEvent, CandidateArrival } from "@/lib/alerts";
-import { isAbortError } from "@/lib/client-api";
+import { isAbortError, isGeoBlocked } from "@/lib/client-api";
 import { formatDistance, haversineMeters } from "@/lib/distance";
 import {
   clearStoredState,
@@ -84,6 +84,7 @@ export function TickerApp() {
     stop: Pick<StopSummary, "code" | "name"> & Partial<StopSummary>;
     subscriptions?: LineSubscription[];
     message: string;
+    geoBlocked: boolean;
   } | null>(null);
   const [directionWarning, setDirectionWarning] = useState<string | null>(null);
   const [dismissedArrivalWarning, setDismissedArrivalWarning] = useState<string | null>(null);
@@ -268,6 +269,7 @@ export function TickerApp() {
           message: loadError instanceof Error
             ? loadError.message
             : "Could not load that stop.",
+          geoBlocked: isGeoBlocked(loadError),
         });
         return null;
       } finally {
@@ -650,8 +652,9 @@ export function TickerApp() {
     error ?? shownCatalogError ?? urgentMessage ?? status;
   const toastIsError = Boolean(error || shownCatalogError);
   const toastIsUrgent = Boolean(!toastIsError && urgentMessage);
+  const geoBlocked = isGeoBlocked(arrivalError) || stopError?.geoBlocked === true;
   const arrivalWarningKey = `${selectedStop?.code}:${arrivalsRetryAt ?? arrivalData?.observedAt ?? "initial"}`;
-  const showArrivalWarning = selectedStop && !pickerOpen && arrivalsUnavailable && dismissedArrivalWarning !== arrivalWarningKey;
+  const showArrivalWarning = selectedStop && !pickerOpen && arrivalsUnavailable && !geoBlocked && dismissedArrivalWarning !== arrivalWarningKey;
   const hasNoArrivals =
     selectedStop !== null &&
     arrivalData !== null &&
@@ -672,6 +675,13 @@ export function TickerApp() {
 
       <ClosestMetro location={userLocation} onHeadsUp={setStatus} />
 
+      {geoBlocked && (
+        <ServiceWarning
+          title="Live data only works in Greece"
+          message="OASA only answers requests from Greek connections, so lines and arrivals won't load from where you are."
+        />
+      )}
+
       {showArrivalWarning && (
         <ArrivalWarning
           error={arrivalError}
@@ -683,7 +693,7 @@ export function TickerApp() {
         />
       )}
 
-      {stopError && (
+      {stopError && !geoBlocked && (
         <ServiceWarning
           title={`Couldn't load lines for ${formatTransitName(stopError.stop.name)}`}
           message={stopError.message}

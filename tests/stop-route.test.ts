@@ -47,4 +47,20 @@ describe("stop route metadata", () => {
     });
     expect(response.headers.get("Cache-Control")).toContain("s-maxage=86400");
   });
+
+  it.each([
+    ["DE", "OASA_GEO_BLOCKED"],
+    ["GR", "OASA_UNAVAILABLE"],
+    [null, "OASA_UNAVAILABLE"],
+  ])("reports an unreachable OASA from country %s as %s", async (country, code) => {
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockRejectedValue(new TypeError("fetch failed")));
+    const headers: HeadersInit = country ? { "cf-ipcountry": country } : {};
+
+    const response = await GET(new Request("http://localhost/api/stops/400075", { headers }), {
+      params: Promise.resolve({ stopCode: "400075" }),
+    });
+
+    expect(response.status).toBe(502);
+    expect((await response.json()).error.code).toBe(code);
+  });
 });

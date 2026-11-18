@@ -42,8 +42,24 @@ export function apiError(
   );
 }
 
-export function oasaErrorResponse(error: unknown) {
+// OASA silently drops connections from outside Greece, which looks exactly
+// like an outage. Cloudflare tells us where the visitor is, and the Worker
+// runs near them, so a non-Greek visitor explains the silence.
+function isOutsideGreece(request: Request): boolean {
+  const country = request.headers.get("cf-ipcountry");
+  return country !== null && country !== "XX" && country !== "GR";
+}
+
+export function oasaErrorResponse(error: unknown, request: Request) {
   if (error instanceof OasaRequestError) {
+    if (error.kind !== "invalid-response" && isOutsideGreece(request)) {
+      return apiError(
+        502,
+        "OASA_GEO_BLOCKED",
+        "OASA only answers requests from Greece.",
+      );
+    }
+
     if (error.kind === "timeout") {
       return apiError(
         504,
