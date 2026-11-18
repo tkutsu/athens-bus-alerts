@@ -1,5 +1,6 @@
 import type { LineSubscription, RecentVehicle } from "@/lib/types";
 import { canReachBus } from "@/lib/walking";
+import { ARRIVED_IF_MISSING_MINUTES } from "@/lib/vehicle-confidence";
 
 export interface CandidateArrival {
   lineId: string;
@@ -23,6 +24,8 @@ export interface SubscriptionEvaluation {
 
 export const RECENT_VEHICLE_TTL_MS = 15 * 60_000;
 export const MAX_RECENT_VEHICLES = 20;
+// A vanished bus spotted this long after it was due is old news, not "due now".
+const ARRIVED_ALERT_GRACE_MS = 60_000;
 // Safety buffer so "leave now" fires before the walk becomes tight.
 const LEAVE_SAFETY_SECONDS = 90;
 
@@ -112,7 +115,7 @@ function completeTrackedVehicle(
 
 /**
  * Advances every selected line from its nearest bus to the next one.
- * Pass `null` arrivals when a leave-now timer fires without a fresh snapshot.
+ * Pass `null` arrivals when a prediction timer fires without a fresh snapshot.
  */
 export function evaluateSubscriptions(
   subscriptions: readonly LineSubscription[],
@@ -193,10 +196,27 @@ export function evaluateSubscriptions(
         return beginTracking(subscription, candidates[0], now);
       }
 
-      // OASA often drops a bus still showing minutes away, so vanishing proves
-      // nothing: only a reported 0 is "due now". A bus that may yet reappear is
-      // kept until it is overdue, then tracking moves on without an alert.
-      if (Date.parse(subscription.predictedZeroAt) > now.getTime()) {
+      const predictedAt = Date.parse(subscription.predictedZeroAt);
+      // A snapshot that drops your bus a couple of minutes out means it is at
+      // the stop. A timer tick saw nothing, so only a snapshot can say so.
+      const arrived =
+        observed !== null &&
+        subscription.lastObservedMinutes !== null &&
+        subscription.lastObservedMinutes <= ARRIVED_IF_MISSING_MINUTES;
+      if (arrived) {
+        if (now.getTime() - predictedAt <= ARRIVED_ALERT_GRACE_MS) {
+          events.push({
+            kind: "zero",
+            lineId: subscription.lineId,
+            vehicleKey: trackedVehicleKey,
+            minutes: 0,
+          });
+        }
+        return completeTrackedVehicle(subscription, candidates, now);
+      }
+      // Further out, a dropped bus may be a glitch: keep it until it is
+      // overdue, then move on without an alert.
+      if (predictedAt > now.getTime()) {
         return subscription;
       }
       return completeTrackedVehicle(subscription, candidates, now);

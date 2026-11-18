@@ -22,6 +22,12 @@ export interface ConfidenceUpdate {
 }
 
 export const STALE_ARRIVAL_MS = 90_000;
+/**
+ * A bus this close that drops off the feed has passed the stop: OASA often
+ * holds a bus at 1–2 min until then and never reports 0, and in a 45-minute
+ * watch of eight stops none that vanished this close came back as a glitch.
+ */
+export const ARRIVED_IF_MISSING_MINUTES = 2;
 
 function vehicleKey(arrival: Pick<Arrival, "routeCode" | "vehicleId">) {
   return `${arrival.routeCode}:${arrival.vehicleId}`;
@@ -83,10 +89,12 @@ export function updateVehicleConfidence(
   }
 
   // A vehicle absent from the snapshot survives one missed poll (shown as
-  // "unconfirmed") and at most 120s, whichever comes first. OASA drops buses
-  // at any ETA, so a missing one is never assumed to have arrived.
+  // "unconfirmed") and at most 120s, whichever comes first, unless it was
+  // close enough that it has simply arrived.
   for (const [key, old] of previous) {
-    if (current.has(key)) continue;
+    if (current.has(key) || old.arrival.minutes <= ARRIVED_IF_MISSING_MINUTES) {
+      continue;
+    }
     const missingSnapshots =
       old.lastSnapshotAtMs === observedAtMs
         ? old.missingSnapshots

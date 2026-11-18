@@ -19,10 +19,10 @@ describe("vehicle confidence", () => {
     expect(second.arrivals[0].confidence).toBe("unconfirmed");
   });
 
-  it("keeps a bus a minute out as unconfirmed when it drops off the feed", () => {
+  it("lets a bus two minutes out leave as soon as it drops off the feed", () => {
     const first = updateVehicleConfidence(
       new Map(),
-      [{ routeCode: "10", vehicleId: "bus", minutes: 1 }],
+      [{ routeCode: "10", vehicleId: "bus", minutes: 2 }],
       "2026-08-08T10:00:00.000Z",
       Date.parse("2026-08-08T10:00:00.000Z"),
     );
@@ -32,7 +32,7 @@ describe("vehicle confidence", () => {
       "2026-08-08T10:00:30.000Z",
       Date.parse("2026-08-08T10:00:30.000Z"),
     );
-    expect(second.arrivals[0].confidence).toBe("unconfirmed");
+    expect(second.arrivals).toEqual([]);
   });
 
   it("marks repeated two-minute ETA slippage with a turtle", () => {
