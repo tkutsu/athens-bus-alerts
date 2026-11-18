@@ -460,12 +460,12 @@ function ArrivalRow({
               arrival.destination ?? arrival.description,
             )}
           </span>
-          {railConnection && (
-            <span className={railBadgeClass(railConnection.line)}>
-              {connectionLabel}
-            </span>
-          )}
         </button>
+        {railConnection && (
+          <span aria-hidden="true" className={railBadgeClass(railConnection.line)}>
+            {connectionLabel}
+          </span>
+        )}
       </span>
     </div>
   );
@@ -691,6 +691,14 @@ export function ArrivalTimeline({
       })
       .sort((a, b) => b.minutes - a.minutes);
   }, [visibleArrivals, selectedRoutes]);
+  const firstBusByCode = new Map<string, string>();
+  for (const group of [...groups].reverse()) {
+    for (const arrival of group.orderedItems) {
+      if (!firstBusByCode.has(arrival.lineId)) {
+        firstBusByCode.set(arrival.lineId, arrival.vehicleKey);
+      }
+    }
+  }
   const groupHeights = groups.map(
     (group) =>
       group.items.length * (timelineMetrics.rowHeight + timelineMetrics.gap) -
@@ -991,7 +999,11 @@ export function ArrivalTimeline({
                     }
                     isUnavailable={isUnavailable}
                     key={arrival.vehicleKey}
-                    railConnection={railConnections?.get(arrival.routeCode)}
+                    railConnection={
+                      firstBusByCode.get(arrival.lineId) === arrival.vehicleKey
+                        ? railConnections?.get(arrival.routeCode)
+                        : undefined
+                    }
                     motion={arrivingKeys.has(arrival.vehicleKey) ? "arriving" : undefined}
                     onToggleRoute={onToggleRoute}
                   />
@@ -1010,7 +1022,6 @@ export function ArrivalTimeline({
               <ArrivalRow
                 {...row}
                 isUnavailable={false}
-                railConnection={railConnections?.get(row.arrival.routeCode)}
                 motion={homing ? "homing" : "departing"}
                 onToggleRoute={onToggleRoute}
               />

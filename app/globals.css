@@ -1316,6 +1316,11 @@ textarea:disabled {
   align-items: center;
 }
 
+.arrival-tag > .rail-badge {
+  /* Leave room for the selected bus button's 6% enlargement. */
+  margin-left: 1rem;
+}
+
 .arrival-bus {
   display: inline-flex;
   min-width: 0;
@@ -1445,11 +1450,6 @@ textarea:disabled {
   color: white;
   box-shadow: 0 5px 14px rgb(var(--signal-rgb) / 0.22);
   transform: scale(1.06);
-}
-
-/* Keep line colours readable against the selected bus's orange fill. */
-.arrival-bus-selected .rail-badge {
-  background: var(--badge-fill, var(--paper));
 }
 
 .arrival-bus-muted {
