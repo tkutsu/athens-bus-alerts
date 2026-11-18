@@ -379,36 +379,210 @@ textarea:disabled {
 .rail-filter-label {
   display: flex;
   min-width: 0;
-  margin-right: auto;
-  color: rgb(var(--ink-rgb) / 0.5);
+  flex: 1 1 auto;
+  margin-right: 0.125rem;
+  color: rgb(var(--ink-rgb) / 0.55);
   font-size: 0.75rem;
-  line-height: 1.25rem;
-  white-space: nowrap;
   transition: color 240ms ease;
 }
 
 .rail-filter-station {
-  color: rgb(var(--ink-rgb) / 0.6);
+  color: rgb(var(--ink-rgb) / 0.7);
 }
 
-/* A row of letter slots. Each letter drops in from above its slot, which
-   clips it, like the flaps on a departure board. */
-.flap-text {
-  display: inline-block;
+/* A station-board name plate as tall as the badges beside it. It fills the
+   row up to them, so its edge never jumps when the name changes. Two flaps,
+   lit from above, meet in the middle; the hinge shows only as notches at
+   the ends, so it never strikes through the name. */
+.flap-plate {
+  --flap-top: color-mix(in srgb, var(--ink) 5%, var(--paper));
+  --flap-bottom: color-mix(in srgb, var(--ink) 7.5%, var(--paper));
+  --flap-radius: 0.375rem;
+  position: relative;
+  display: block;
+  min-width: 0;
+  height: 1.75rem;
+  flex: 1 1 auto;
+  perspective: 30rem;
+}
+
+.flap-plate::after {
+  position: absolute;
+  z-index: 2;
+  top: calc(50% - 0.5px);
+  right: 0;
+  left: 0;
+  height: 1px;
+  background: linear-gradient(
+    to right,
+    var(--paper) 0 0.3rem,
+    transparent 0.3rem calc(100% - 0.3rem),
+    var(--paper) calc(100% - 0.3rem)
+  );
+  content: "";
+}
+
+.flap-half {
+  position: absolute;
+  right: 0;
+  left: 0;
+  height: 50%;
+  overflow: hidden;
+}
+
+.flap-half-top {
+  top: 0;
+  border-radius: var(--flap-radius) var(--flap-radius) 0 0;
+  background: var(--flap-top);
+}
+
+.flap-half-bottom {
+  bottom: 0;
+  border-radius: 0 0 var(--flap-radius) var(--flap-radius);
+  background: var(--flap-bottom);
+}
+
+/* The whole face in each half, pinned to the plate's own top or bottom, so
+   the two halves line up into one line of text across the hinge. */
+.flap-face {
+  position: absolute;
+  right: 0;
+  left: 0;
+  display: flex;
+  height: 1.75rem;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0 0.5rem;
+  white-space: nowrap;
+}
+
+.flap-half-top .flap-face {
+  top: 0;
+}
+
+.flap-half-bottom .flap-face {
+  bottom: 0;
+}
+
+.flap-title {
   min-width: 0;
   overflow: hidden;
-  vertical-align: top;
+  font-weight: 600;
+  text-overflow: ellipsis;
 }
 
-.flap-glyph {
+.flap-detail {
+  display: inline-flex;
+  flex-shrink: 0;
+  margin-left: auto;
+  overflow: hidden;
+  font-variant-numeric: tabular-nums;
+}
+
+.flap-detail > span {
   display: inline-block;
   white-space: pre;
-  animation: flap-drop 180ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
-@keyframes flap-drop {
+/* A changed digit rolls one place: down as you get closer, up as you leave. */
+.flap-roll-down .flap-roll {
+  animation: flap-roll-down 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.flap-roll-up .flap-roll {
+  animation: flap-roll-up 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes flap-roll-down {
   from {
     transform: translateY(-100%);
+  }
+}
+
+@keyframes flap-roll-up {
+  from {
+    transform: translateY(100%);
+  }
+}
+
+/* The turning flap. The old top half falls on the hinge, picking up speed
+   and turning away from the light; then the new bottom half lands on the
+   plate and bounces once before it settles. */
+.flap-leaf {
+  z-index: 1;
+  backface-visibility: hidden;
+}
+
+.flap-leaf::after {
+  position: absolute;
+  inset: 0;
+  background: rgb(0 0 0 / 0.22);
+  content: "";
+  opacity: 0;
+}
+
+.flap-leaf-falling {
+  transform-origin: 50% 100%;
+  animation: flap-fall 150ms cubic-bezier(0.55, 0, 0.9, 0.45) both;
+}
+
+.flap-leaf-falling::after {
+  animation: flap-shade 150ms ease-in both;
+}
+
+.flap-leaf-landing {
+  transform-origin: 50% 0;
+  animation: flap-land 260ms 150ms both;
+}
+
+.flap-leaf-landing::after {
+  animation: flap-shade 120ms 150ms ease-out reverse both;
+}
+
+@keyframes flap-fall {
+  from {
+    transform: rotateX(0);
+  }
+
+  to {
+    transform: rotateX(-90deg);
+  }
+}
+
+@keyframes flap-land {
+  0% {
+    transform: rotateX(90deg);
+    animation-timing-function: cubic-bezier(0.55, 0, 0.9, 0.45);
+  }
+
+  55% {
+    transform: rotateX(0);
+    animation-timing-function: cubic-bezier(0.2, 0.7, 0.4, 1);
+  }
+
+  78% {
+    transform: rotateX(16deg);
+    animation-timing-function: cubic-bezier(0.6, 0, 0.8, 0.6);
+  }
+
+  100% {
+    transform: rotateX(0);
+  }
+}
+
+@keyframes flap-shade {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes flap-fade {
+  from {
+    opacity: 0;
   }
 }
 
@@ -1912,9 +2086,15 @@ textarea:disabled {
     transition: none;
   }
 
-  .flap-glyph,
+  .flap-roll-down .flap-roll,
+  .flap-roll-up .flap-roll,
   .arrival-connection {
     animation: none;
+  }
+
+  /* No flap: the new name fades in where the old one was. */
+  .flap-half > .flap-face {
+    animation: flap-fade 200ms ease both;
   }
 
   .small-action:hover {

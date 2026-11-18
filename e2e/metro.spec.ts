@@ -155,7 +155,10 @@ test("the closest station shows a calm distance and a heads-up once on approach"
   await openNearby(context, page, north(-800));
   await page.getByRole("button", { name: "metro line 3", exact: true }).click();
   const readout = page.locator(".rail-filter-station");
-  await expect(readout).toContainText(/συνταγμα\s*· 800 meters/);
+  await expect(readout).toContainText("Closest station: συνταγμα, 800 meters");
+  // The name turns over on one flap, which clears once it has landed.
+  await expect(readout.locator(".flap-leaf")).toHaveCount(0);
+  await expect(readout.locator(".flap-half-bottom")).toContainText("συνταγμα");
 
   // Riding north toward the station: the heads-up comes once, ~600 m out.
   for (const meters of [-590, -560, -530]) {
@@ -168,7 +171,7 @@ test("the closest station shows a calm distance and a heads-up once on approach"
   for (const meters of [-400, -200, -50]) {
     await context.setGeolocation(north(meters));
   }
-  await expect(readout).toContainText("· here");
+  await expect(readout).toContainText("συνταγμα, here");
   await expect(page.getByText(/coming up/)).toHaveCount(0);
 });
 

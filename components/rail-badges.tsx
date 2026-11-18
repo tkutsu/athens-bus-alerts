@@ -1,6 +1,6 @@
 "use client";
 
-import { FlapText } from "@/components/flap-text";
+import { FlapPlate } from "@/components/flap-plate";
 import { useClosestStation } from "@/hooks/use-closest-station";
 import { selectLine, toggleLine, useSelectedLine } from "@/hooks/use-selected-line";
 import { formatTransitName } from "@/lib/display";
@@ -70,8 +70,11 @@ export function RailLineFilter({
             Closest station: {station}, {distance}
           </span>
         )}
-        <FlapText className="font-semibold" text={station ?? "Heading for"} />
-        <FlapText className="shrink-0" text={distance ? ` · ${distance}` : ""} />
+        <FlapPlate
+          detail={distance ?? ""}
+          detailValue={closest && !isHere ? closest.meters : null}
+          title={station ?? "Heading for"}
+        />
       </p>
       {/* All stay mounted, so the same badge morphs between the two states. */}
       {RAIL_LINES.map((line) => {
