@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ARRIVAL_CACHE_KEY,
   readCachedArrivals,
@@ -14,7 +14,22 @@ function payload(vehicleId: string): ArrivalsPayload {
 }
 
 describe("arrival cache", () => {
-  beforeEach(() => window.localStorage.clear());
+  beforeEach(() => {
+    window.localStorage.clear();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-07T10:05:00Z"));
+  });
+
+  afterEach(() => vi.useRealTimers());
+
+  it("forgets snapshots older than an hour", () => {
+    writeCachedArrivals("400075", payload("first"), Date.UTC(2026, 7, 7, 10, 6));
+    vi.setSystemTime(new Date("2026-08-07T11:00:00Z"));
+    expect(readCachedArrivals("400075")).not.toBeNull();
+
+    vi.setSystemTime(new Date("2026-08-07T11:00:01Z"));
+    expect(readCachedArrivals("400075")).toBeNull();
+  });
 
   it("keeps independent schedules when the user changes stops", () => {
     writeCachedArrivals("400075", payload("first"), Date.UTC(2026, 7, 7, 10, 1));
