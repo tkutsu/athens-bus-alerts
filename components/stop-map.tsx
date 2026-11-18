@@ -12,21 +12,19 @@ import {
 } from "@/lib/stop-catalog";
 import { formatTransitName } from "@/lib/display";
 import { railBadgeClass } from "@/components/rail-badges";
-import { toggleLine, useHiddenLines } from "@/hooks/use-hidden-lines";
+import { toggleLine, useSelectedLine } from "@/hooks/use-selected-line";
 import { RAIL_LINES, type RailLine, type RailStation } from "@/lib/metro";
 import type { Coordinates, StopSummary } from "@/lib/types";
 
 /** The same badges as on stop names; line codes are fixed, so the HTML is safe. */
 function stationIconHtml(
   lines: readonly RailLine[],
-  hidden: ReadonlySet<RailLine>,
+  selected: RailLine | null,
 ): string {
   return `<span class="map-station">${lines
     .map(
       (line) =>
-        `<span class="${railBadgeClass(line, hidden.has(line))}" data-line="${line}" title="${
-          hidden.has(line) ? "Show" : "Hide"
-        } ${line}">${line}</span>`,
+        `<span class="${railBadgeClass(line, line !== selected)}" data-line="${line}">${line}</span>`,
     )
     .join("")}</span>`;
 }
@@ -81,7 +79,7 @@ export function StopMap({
   const updateVisibleStopsRef = useRef<(() => void) | null>(null);
   const pendingFocusCenterRef = useRef<Coordinates | null>(focusCenter);
   const [mapReady, setMapReady] = useState(false);
-  const hiddenLines = useHiddenLines();
+  const selectedLine = useSelectedLine();
   const [visibleStops, setVisibleStops] = useState<StopSummary[]>([]);
   const [truncated, setTruncated] = useState(false);
   const selectedStopLatitude = selectedStop?.latitude;
@@ -135,7 +133,7 @@ export function StopMap({
       }).addTo(map);
 
       // Stations sit under the stop dots (overlay pane, 400); only their badges
-      // take a tap, which shows or hides that line everywhere.
+      // take a tap, which picks that line or clears it.
       const stationPane = map.createPane("stations");
       stationPane.style.zIndex = "350";
       stationPane.style.pointerEvents = "none";
@@ -252,7 +250,7 @@ export function StopMap({
     }
   }, [selectedStop?.code, visibleStops]);
 
-  /** Marks every metro and tram station with its line badges, hidden lines faded. */
+  /** Marks every metro and tram station with its line badges, the chosen one in colour. */
   useEffect(() => {
     const L = leafletRef.current;
     const layer = stationsRef.current;
@@ -263,7 +261,7 @@ export function StopMap({
       L.marker([station.latitude, station.longitude], {
         icon: L.divIcon({
           className: "map-station-anchor",
-          html: stationIconHtml(station.lines, hiddenLines),
+          html: stationIconHtml(station.lines, selectedLine),
           iconSize: [0, 0],
         }),
         interactive: false,
@@ -271,7 +269,7 @@ export function StopMap({
         pane: "stations",
       }).addTo(layer);
     }
-  }, [hiddenLines, mapReady, stations]);
+  }, [mapReady, selectedLine, stations]);
 
   /** Updates the device location marker. */
   useEffect(() => {
