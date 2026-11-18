@@ -160,6 +160,7 @@ test("forgetting data cancels an unfinished stop load", async ({ page }) => {
   await page.getByRole("option", { name: /first stop/i }).click();
 
   page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Favorites" }).click();
   await page.getByRole("button", { name: "Forget saved data" }).click();
   releaseMetadata?.();
 
