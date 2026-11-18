@@ -1,5 +1,5 @@
 import { haversineMeters } from "@/lib/distance";
-import type { Coordinates } from "@/lib/types";
+import type { Coordinates, RouteDetails } from "@/lib/types";
 
 /** Metro then tram, the order chips always appear in. */
 export const RAIL_LINES = ["M1", "M2", "M3", "T6", "T7"] as const;
@@ -47,6 +47,24 @@ export function linesNear(
     }
   }
   return RAIL_LINES.filter((line) => lines.has(line));
+}
+
+/** Counts bus stops to the first connection on this line, including zero here. */
+export function stopsToLine(
+  route: RouteDetails,
+  stopCode: string,
+  line: RailLine,
+  stations: readonly RailStation[],
+): number | null {
+  const start = route.stops.findIndex((stop) => stop.code === stopCode);
+  if (start < 0) return null;
+  const onLine = stations.filter((station) => station.lines.includes(line));
+  for (let index = start; index < route.stops.length; index++) {
+    if (onLine.some((station) =>
+      haversineMeters(route.stops[index], station) <= CHIP_RADIUS_METERS,
+    )) return index - start;
+  }
+  return null;
 }
 
 /** The station a stop is "by": the nearest metro in range, else the nearest tram. */

@@ -28,7 +28,7 @@
   --line-m1: #007a33;
   --line-m2: #c8241a;
   --line-m3: #10069f;
-  --line-tram: #437310;
+  --line-tram: #ffda1f;
   --font-display: "Avenir Next", Avenir, "Segoe UI", sans-serif;
   --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   /* The rail's centre line, shared by the stop card's marker and every bus circle.
@@ -58,7 +58,7 @@
   --line-m1: #3ec274;
   --line-m2: #ff6f61;
   --line-m3: #9298ff;
-  --line-tram: #8fcf3c;
+  --line-tram: #ffda1f;
 }
 
 * {
@@ -355,13 +355,14 @@ textarea:disabled {
   flex-shrink: 0;
   align-items: center;
   border-radius: 999px;
-  background: color-mix(in oklab, var(--line-color) 11%, transparent);
+  background: var(--badge-fill, color-mix(in oklab, var(--line-color) 11%, transparent));
   padding: 0 0.4rem;
-  color: var(--line-color);
+  color: var(--badge-ink, var(--line-color));
   font-family: var(--font-mono);
   font-size: 0.6875rem;
   font-weight: 800;
   line-height: 1;
+  white-space: nowrap;
   transition:
     background-color 160ms ease,
     color 160ms ease,
@@ -399,7 +400,7 @@ textarea:disabled {
 }
 
 .rail-filter .rail-badge:hover {
-  background: color-mix(in oklab, var(--line-color) 20%, transparent);
+  background: var(--badge-fill, color-mix(in oklab, var(--line-color) 20%, transparent));
 }
 
 .rail-filter .rail-badge-off:hover {
@@ -421,6 +422,8 @@ textarea:disabled {
 .rail-line-t6,
 .rail-line-t7 {
   --line-color: var(--line-tram);
+  --badge-fill: var(--line-tram);
+  --badge-ink: #302600;
 }
 
 /* A station on the map, its badges centred on the platforms; tapping one toggles its line. */
@@ -433,7 +436,7 @@ textarea:disabled {
 
 .map-station .rail-badge {
   height: 1.25rem;
-  background: color-mix(in oklab, var(--line-color) 14%, var(--paper));
+  background: var(--badge-fill, color-mix(in oklab, var(--line-color) 14%, var(--paper)));
   box-shadow: 0 1px 3px rgb(var(--shadow-rgb) / 0.28);
   cursor: pointer;
   pointer-events: auto;
@@ -1442,6 +1445,11 @@ textarea:disabled {
   color: white;
   box-shadow: 0 5px 14px rgb(var(--signal-rgb) / 0.22);
   transform: scale(1.06);
+}
+
+/* Keep line colours readable against the selected bus's orange fill. */
+.arrival-bus-selected .rail-badge {
+  background: var(--badge-fill, var(--paper));
 }
 
 .arrival-bus-muted {
