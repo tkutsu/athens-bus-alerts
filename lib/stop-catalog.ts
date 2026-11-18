@@ -1,4 +1,5 @@
 import { haversineMeters } from "@/lib/distance";
+import type { RailStation } from "@/lib/metro";
 import {
   normalizeSearchText,
   transliterateGreek,
@@ -13,7 +14,10 @@ export interface CatalogStop extends Coordinates {
 export interface StopCatalogPayload {
   generatedAt: string;
   source: string;
+  stationSource?: string;
   stops: CatalogStop[];
+  /** Metro and tram stations; absent from catalogues built before they were added. */
+  stations?: RailStation[];
 }
 
 export interface MapBounds {
