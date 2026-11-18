@@ -16,7 +16,10 @@ import { toggleLine, useSelectedLine } from "@/hooks/use-selected-line";
 import { RAIL_LINES, type RailLine, type RailStation } from "@/lib/metro";
 import type { Coordinates, StopSummary } from "@/lib/types";
 
-/** The same badges as on stop names; line codes are fixed, so the HTML is safe. */
+/**
+ * The same badges as on stop names: every line in colour until one is picked,
+ * then only that one. Line codes are fixed, so the HTML is safe.
+ */
 function stationIconHtml(
   lines: readonly RailLine[],
   selected: RailLine | null,
@@ -24,7 +27,7 @@ function stationIconHtml(
   return `<span class="map-station">${lines
     .map(
       (line) =>
-        `<span class="${railBadgeClass(line, line !== selected)}" data-line="${line}">${line}</span>`,
+        `<span class="${railBadgeClass(line, selected !== null && line !== selected)}" data-line="${line}">${line}</span>`,
     )
     .join("")}</span>`;
 }
@@ -132,10 +135,11 @@ export function StopMap({
         maxZoom: 19,
       }).addTo(map);
 
-      // Stations sit under the stop dots (overlay pane, 400); only their badges
-      // take a tap, which picks that line or clears it.
+      // Stations are the landmarks, so they sit over the stop dots (overlay
+      // pane, 400) and under your location (marker pane, 600). Only their
+      // badges take a tap, which picks that line or clears it.
       const stationPane = map.createPane("stations");
-      stationPane.style.zIndex = "350";
+      stationPane.style.zIndex = "450";
       stationPane.style.pointerEvents = "none";
       stationPane.addEventListener("click", (event) => {
         const line = (event.target as HTMLElement)
@@ -250,7 +254,7 @@ export function StopMap({
     }
   }, [selectedStop?.code, visibleStops]);
 
-  /** Marks every metro and tram station with its line badges, the chosen one in colour. */
+  /** Marks every metro and tram station with its line badges. */
   useEffect(() => {
     const L = leafletRef.current;
     const layer = stationsRef.current;
