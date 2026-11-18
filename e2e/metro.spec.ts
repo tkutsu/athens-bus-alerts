@@ -3,7 +3,7 @@ import { expect, test, type BrowserContext, type Locator, type Page } from "@pla
 const SYNTAGMA = { latitude: 37.975096, longitude: 23.735739 };
 const METERS_PER_DEGREE = 111_195;
 
-/** Measures badge text against its background composited over the selected bus. */
+/** Measures badge text against its background composited over the page. */
 async function badgeContrast(badge: Locator) {
   return badge.evaluate((element) => {
     const canvas = document.createElement("canvas");
@@ -16,7 +16,7 @@ async function badgeContrast(badge: Locator) {
         .map((value) => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4);
       return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
     };
-    context.fillStyle = getComputedStyle(element.closest(".arrival-bus")!).backgroundColor;
+    context.fillStyle = getComputedStyle(document.body).backgroundColor;
     context.fillRect(0, 0, 1, 1);
     context.fillStyle = style.backgroundColor;
     context.fillRect(0, 0, 1, 1);
@@ -183,12 +183,14 @@ for (const width of [390, 1280]) {
       routes: [
         { routeCode: "2810", lineId: "060", description: "ΑΡΧΗ - ΣΥΝΤΑΓΜΑ", destination: "ΣΥΝΤΑΓΜΑ" },
         { routeCode: "2811", lineId: "061", description: "ΑΡΧΗ - ΑΛΛΟΥ", destination: "ΑΛΛΟΥ" },
+        { routeCode: "2812", lineId: "060", description: "ΑΡΧΗ - ΣΥΝΤΑΓΜΑ", destination: "ΣΥΝΤΑΓΜΑ" },
       ],
     } }));
     await page.route("**/api/stops/30000/arrivals", (route) => route.fulfill({ json: {
       arrivals: [
         { routeCode: "2810", vehicleId: "a", minutes: 5 },
         { routeCode: "2810", vehicleId: "b", minutes: 10 },
+        { routeCode: "2812", vehicleId: "d", minutes: 12 },
         { routeCode: "2811", vehicleId: "c", minutes: 15 },
       ], observedAt: new Date().toISOString(),
     } }));
@@ -198,7 +200,7 @@ for (const width of [390, 1280]) {
       const routeCode = route.request().url().split("/").at(-1);
       return route.fulfill({ json: {
         routeCode, origin: "Start", destination: "End", isCircular: false,
-        stops: routeCode === "2810" ? stops : [stops[0]],
+        stops,
       } });
     });
     await context.grantPermissions(["geolocation"]);
@@ -209,19 +211,28 @@ for (const width of [390, 1280]) {
     await lines.getByRole("button", { name: "metro line 3" }).click();
     await page.getByPlaceholder("Search stop name").click();
     await page.getByRole("option", { name: /αρχη/ }).click();
-    const badges = page.locator(".arrival-bus .rail-badge");
+    const badges = page.locator(".arrival-tag > .rail-badge");
     await expect(badges).toHaveText(["M3: 4 stops", "M3: 4 stops"]);
-    await expect(page.getByRole("button", { name: /notifications for line 060.*M3: 4 stops/ })).toHaveCount(2);
-    await page.getByRole("button", { name: /Enable notifications for line 060/ }).first().click();
-    const selectedBadge = page.locator(".arrival-bus-selected .rail-badge").first();
+    await expect(page.getByRole("button", { name: /notifications for line 060.*M3: 4 stops/ })).toHaveCount(1);
+    await expect(page.getByRole("button", { name: /notifications for line 060, 5 minutes away, M3: 4 stops/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: /notifications for line 061.*M3: 4 stops/ })).toHaveCount(1);
+    await page.getByRole("button", { name: /Enable notifications for line 060, 5 minutes away/ }).click();
+    const selectedBadge = page.locator(".arrival-bus-selected + .rail-badge").first();
     for (const theme of ["light", "dark"] as const) {
       if (theme === "dark") await page.getByRole("switch", { name: "Use dark mode" }).click();
       await expect.poll(() => badgeContrast(selectedBadge)).toBeGreaterThanOrEqual(4.5);
     }
     await page.getByRole("switch", { name: "Use light mode" }).click();
-    expect(detailRequests).toBe(2);
+    for (const direction of await page.locator(".arrival-bus-direction").all()) {
+      await expect.poll(() => direction.evaluate((element) =>
+        element.scrollWidth - element.clientWidth,
+      )).toBeLessThanOrEqual(1);
+    }
+    expect(detailRequests).toBe(3);
     for (const badge of await badges.all()) {
       const box = await badge.boundingBox();
+      const busBox = await badge.locator("..").locator(".arrival-bus").boundingBox();
+      expect(box!.x).toBeGreaterThan(busBox!.x + busBox!.width);
       expect(box!.x + box!.width).toBeLessThanOrEqual(width);
     }
 
@@ -242,6 +253,6 @@ for (const width of [390, 1280]) {
     await page.locator(".selected-stop-row").click();
     await page.getByRole("button", { name: "tram line 6" }).click();
     await expect(badges).toHaveCount(0);
-    expect(detailRequests).toBe(2);
+    expect(detailRequests).toBe(3);
   });
 }
