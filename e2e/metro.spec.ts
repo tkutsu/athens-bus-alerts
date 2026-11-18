@@ -156,9 +156,9 @@ test("the closest station shows a calm distance and a heads-up once on approach"
   await page.getByRole("button", { name: "metro line 3", exact: true }).click();
   const readout = page.locator(".rail-filter-station");
   await expect(readout).toContainText("Closest station: συνταγμα, 800 meters");
-  // The name turns over on one flap, which clears once it has landed.
-  await expect(readout.locator(".flap-leaf")).toHaveCount(0);
-  await expect(readout.locator(".flap-half-bottom")).toContainText("συνταγμα");
+  // "Heading for" turns over to the station, then only the station is left.
+  await expect(readout.locator(".flip-out")).toHaveCount(0);
+  await expect(readout.locator(".flip-face")).toHaveText(/^συνταγμα\s*·\s*800 meters$/);
 
   // Riding north toward the station: the heads-up comes once, ~600 m out.
   for (const meters of [-590, -560, -530]) {

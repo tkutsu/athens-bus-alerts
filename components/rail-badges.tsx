@@ -1,6 +1,6 @@
 "use client";
 
-import { FlapPlate } from "@/components/flap-plate";
+import { FlipText } from "@/components/flip-text";
 import { useClosestStation } from "@/hooks/use-closest-station";
 import { selectLine, toggleLine, useSelectedLine } from "@/hooks/use-selected-line";
 import { formatTransitName } from "@/lib/display";
@@ -70,7 +70,7 @@ export function RailLineFilter({
             Closest station: {station}, {distance}
           </span>
         )}
-        <FlapPlate
+        <FlipText
           detail={distance ?? ""}
           detailValue={closest && !isHere ? closest.meters : null}
           title={station ?? "Heading for"}
