@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { LineSubscription, StoredState } from "@/lib/types";
 import { clearCachedArrivals } from "@/lib/arrival-cache";
+import { RAIL_LINES } from "@/lib/metro";
 
 export const STORAGE_KEY = "athens-bus-ticker:v5";
 
@@ -33,6 +34,9 @@ const favoriteSchema = z.object({
   routes: z.array(
     z.object({ lineId: z.string(), routeCode: z.string().nullable() }),
   ),
+  // Absent from favorites saved before lines were, or with none picked. A line
+  // this version doesn't know is dropped rather than failing every favorite.
+  railLine: z.enum(RAIL_LINES).optional().catch(undefined),
   createdAt: z.string(),
   updatedAt: z.string(),
   lastEnabledAt: z.string().nullable(),

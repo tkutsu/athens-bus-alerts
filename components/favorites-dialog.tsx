@@ -9,8 +9,11 @@ import {
   type SetStateAction,
 } from "react";
 import { Icon } from "@/components/icon";
+import { LineBadge } from "@/components/rail-badges";
 import { StopName } from "@/components/stop-name";
+import { useSelectedLine } from "@/hooks/use-selected-line";
 import { formatTransitName } from "@/lib/display";
+import { describeLine } from "@/lib/metro";
 import type { Favorite, LineSubscription, StopSummary } from "@/lib/types";
 
 interface FavoritesDialogProps {
@@ -56,6 +59,8 @@ export function FavoritesDialog({
     [subscriptions],
   );
   const canSaveFavorite = selectedStop !== null && selectedLineIds.length > 0;
+  // Saved with the favorite, so enabling it brings back the line too.
+  const railLine = useSelectedLine() ?? undefined;
   const [favoriteName, setFavoriteName] = useState("");
   const [favoriteMenu, setFavoriteMenu] = useState<{
     favoriteId: string;
@@ -114,6 +119,7 @@ export function FavoritesDialog({
         lineId,
         routeCode,
       })),
+      railLine,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
       lastEnabledAt: existing?.lastEnabledAt ?? null,
@@ -168,6 +174,7 @@ export function FavoritesDialog({
                 lineId,
                 routeCode,
               })),
+              railLine,
               updatedAt: new Date().toISOString(),
             }
           : item,
@@ -299,10 +306,18 @@ export function FavoritesDialog({
                     >
                       <span className="block truncate font-semibold">{favorite.name}</span>
                       <span className="flex min-w-0 items-center gap-1 text-xs text-ink/55">
+                        {/* The favorite's own line, not whichever is picked now. */}
                         <StopName
+                          badge={false}
                           code={favorite.stop.code}
                           name={favorite.stop.name}
                         />
+                        {favorite.railLine && (
+                          <LineBadge
+                            label={`heading for ${describeLine(favorite.railLine)}`}
+                            line={favorite.railLine}
+                          />
+                        )}
                         <span className="truncate">
                           ·{" "}
                           {favorite.routes
