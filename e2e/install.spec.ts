@@ -10,7 +10,13 @@ test("shows install steps where the browser has no install prompt", async ({ bro
   });
   const page = await context.newPage();
   await page.goto("/");
-  await page.getByRole("button", { name: "Install" }).click();
+  const install = page.getByRole("button", { name: "Install" });
+  await expect(install).toBeVisible();
+  // The link must not push the title onto a second line on a small phone.
+  const title = await page.getByRole("heading", { level: 1 }).boundingBox();
+  const link = await install.boundingBox();
+  expect(Math.abs(title!.y + title!.height / 2 - (link!.y + link!.height / 2))).toBeLessThan(4);
+  await install.click();
   await expect(page.getByRole("heading", { name: "Install the app" })).toBeVisible();
   await expect(page.getByText("Add app to Home screen")).toBeVisible();
   await page.getByRole("button", { name: "Close install steps" }).click();

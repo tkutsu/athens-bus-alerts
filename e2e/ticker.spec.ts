@@ -1280,12 +1280,12 @@ test("saves a multi-line favorite to v5 storage", async ({ page }) => {
     .click();
 
   await page
-    .locator("header")
+    .locator("footer")
     .getByRole("button", { name: "Favorites" })
     .click();
   const dialog = page.getByRole("dialog", { name: "Favorites" });
   await dialog.getByPlaceholder("Favorite name").fill("Home");
-  await dialog.getByRole("button", { name: "Save" }).click();
+  await dialog.getByRole("button", { name: "Save", exact: true }).click();
 
   await expect
     .poll(() =>
@@ -1338,7 +1338,7 @@ test("opens favorite actions outside the scrolling list", async ({ page }) => {
   await page.goto("/");
 
   await page
-    .locator("header")
+    .locator("footer")
     .getByRole("button", { name: "Favorites" })
     .click();
   const dialog = page.getByRole("dialog", { name: "Favorites" });
