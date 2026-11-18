@@ -2,9 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   INITIAL_APPROACH,
   approach,
-  closestMetro,
-  describeLines,
-  linesNear,
+  closestStation,
+  describeLine,
   stationAt,
   stopsToLine,
   stickyClosest,
@@ -59,56 +58,49 @@ describe("stopsToLine", () => {
   });
 });
 
-describe("linesNear", () => {
-  it("merges lines from every station in range, metro before tram", () => {
-    expect(linesNear(north(20), stations)).toEqual(["M2", "M3", "T6"]);
-  });
-
-  it("ignores stations beyond the chip radius", () => {
-    expect(linesNear(north(350), stations)).toEqual([]);
-  });
-});
-
 describe("stationAt", () => {
-  it("prefers a metro station in range over a nearer tram stop", () => {
-    expect(stationAt(north(-80), stations)).toBe(syntagma);
+  it("finds the nearest station on the line, past nearer ones on other lines", () => {
+    expect(stationAt(north(-80), "M2", stations)).toBe(syntagma);
+    expect(stationAt(north(-80), "T6", stations)).toBe(tramStop);
   });
 
-  it("falls back to the tram, and to nothing out of range", () => {
-    expect(stationAt(north(-100), [tramStop])).toBe(tramStop);
-    expect(stationAt(north(400), stations)).toBeNull();
-  });
-});
-
-describe("describeLines", () => {
-  it("names each mode once, in chip order", () => {
-    expect(describeLines(["M2", "M3", "T6"])).toBe(
-      "metro lines 2 and 3 and tram line 6",
-    );
-    expect(describeLines(["M1"])).toBe("metro line 1");
+  it("finds nothing beyond the chip radius or on a line with no station near", () => {
+    expect(stationAt(north(350), "M2", stations)).toBeNull();
+    expect(stationAt(ORIGIN, "M1", stations)).toBeNull();
   });
 });
 
-describe("closestMetro", () => {
-  it("skips tram-only stops even when they are nearer", () => {
-    expect(closestMetro(north(-90), stations)?.station).toBe(syntagma);
+describe("describeLine", () => {
+  it("names the mode and the number", () => {
+    expect(describeLine("M1")).toBe("metro line 1");
+    expect(describeLine("T6")).toBe("tram line 6");
   });
+});
 
-  it("returns nothing without metro stations", () => {
-    expect(closestMetro(ORIGIN, [tramStop])).toBeNull();
+describe("closestStation", () => {
+  it("finds the nearest station however far, and nothing without stations", () => {
+    expect(closestStation(north(2_000), stations)?.station).toBe(panepistimio);
+    expect(closestStation(ORIGIN, [])).toBeNull();
   });
 });
 
 describe("stickyClosest", () => {
+  const onM2 = [syntagma, panepistimio];
+
   it("keeps the previous station until another is clearly nearer", () => {
     // Just past halfway, Panepistimio is nearer but only by 20 m.
-    expect(stickyClosest(syntagma, north(460), stations)?.station).toBe(syntagma);
+    expect(stickyClosest(syntagma, north(460), onM2)?.station).toBe(syntagma);
     // Past the margin, it takes over.
-    expect(stickyClosest(syntagma, north(480), stations)?.station).toBe(panepistimio);
+    expect(stickyClosest(syntagma, north(480), onM2)?.station).toBe(panepistimio);
   });
 
   it("reports the kept station's own distance", () => {
-    expect(stickyClosest(syntagma, north(460), stations)?.meters).toBeCloseTo(460, -1);
+    expect(stickyClosest(syntagma, north(460), onM2)?.meters).toBeCloseTo(460, -1);
+  });
+
+  it("lets go of a previous station once it isn't a candidate", () => {
+    // The tram stop is nearer, but the rider has switched to M2.
+    expect(stickyClosest(tramStop, north(-90), onM2)?.station).toBe(syntagma);
   });
 });
 
@@ -116,7 +108,7 @@ describe("stickyClosest", () => {
 function ride(points: Coordinates[], state: ApproachState = INITIAL_APPROACH) {
   const headsUps: string[] = [];
   for (const point of points) {
-    const result = approach(state, point, closestMetro(point, [syntagma]));
+    const result = approach(state, point, closestStation(point, [syntagma]));
     state = result.state;
     if (result.headsUp) headsUps.push(result.headsUp.station.name);
   }

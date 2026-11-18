@@ -342,12 +342,6 @@ textarea:disabled {
   transform: translateX(1.375rem);
 }
 
-.rail-badges {
-  display: inline-flex;
-  flex-shrink: 0;
-  gap: 0.25rem;
-}
-
 /* Set like a bus code: small bold mono in the line's colour on a faint wash of it. */
 .rail-badge {
   display: inline-flex;
@@ -369,10 +363,10 @@ textarea:disabled {
     opacity 160ms ease;
 }
 
-/* A hidden line: drained to the muted ink, still there to switch back on. */
+/* A line you could pick: plain ink, so only your line carries colour. */
 .rail-badge-off {
-  background: rgb(var(--ink-rgb) / 0.05);
-  color: rgb(var(--ink-rgb) / 0.32);
+  background: rgb(var(--ink-rgb) / 0.06);
+  color: rgb(var(--ink-rgb) / 0.6);
 }
 
 /* The toggles above the stop picker: the same badges at a size made for a thumb. */
@@ -448,7 +442,7 @@ textarea:disabled {
 }
 
 /* Collapses to nothing when hidden; its margins cancel out, so the page doesn't move. */
-.closest-metro {
+.closest-station {
   display: grid;
   margin: -0.75rem 0 0.75rem;
   grid-template-rows: 0fr;
@@ -458,12 +452,12 @@ textarea:disabled {
     opacity 240ms ease;
 }
 
-.closest-metro[data-visible="true"] {
+.closest-station[data-visible="true"] {
   grid-template-rows: 1fr;
   opacity: 1;
 }
 
-.closest-metro-line {
+.closest-station-line {
   display: flex;
   min-height: 0;
   min-width: 0;
@@ -475,7 +469,7 @@ textarea:disabled {
   line-height: 1.25rem;
 }
 
-.closest-metro-here {
+.closest-station-here {
   color: var(--signal);
 }
 
@@ -1835,7 +1829,7 @@ textarea:disabled {
   .theme-switch,
   .theme-switch-icon,
   .theme-switch-thumb,
-  .closest-metro {
+  .closest-station {
     transition: none;
   }
 

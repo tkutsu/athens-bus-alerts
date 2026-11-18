@@ -25,12 +25,13 @@ OASA updates the feed, regenerate the file:
 pnpm sync:stops
 ```
 
-The same file holds the metro and tram stations from STASY's GTFS. A bus stop
-within 300 m of a station gets that station's line numbers next to its name,
-and the line under the header shows the closest metro station while you have a
-GPS fix. Each line can be hidden from the row of badges above the map, or by
-tapping its badge on a station on the map. STASY ships its
-feed as a RAR, so the sync needs `bsdtar` from libarchive.
+The same file holds the metro and tram stations from STASY's GTFS. Pick the
+line you're heading for from the row above the map, or tap its badge on a
+station on the map. Bus stops within 300 m of that line then show its badge,
+each bus says how many stops it takes to reach it, and the line under the
+header shows its closest station while you have a GPS fix, with a heads-up
+about 600 m before you get there. STASY ships its feed as a RAR, so the sync
+needs `bsdtar` from libarchive.
 
 Which lines stop where, and when the next buses arrive, come live from OASA
 Telematics through the Worker. Route details change far less often than

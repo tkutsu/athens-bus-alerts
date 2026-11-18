@@ -17,7 +17,7 @@ import {
   readStoredState,
   writeStoredState,
 } from "@/lib/storage";
-import { ClosestMetro } from "@/components/closest-metro";
+import { ClosestStation } from "@/components/closest-station";
 import { FavoritesDialog } from "@/components/favorites-dialog";
 import { pullIntoStop } from "@/components/pull-in";
 import { Icon } from "@/components/icon";
@@ -673,7 +673,7 @@ export function TickerApp() {
         <InstallApp />
       </header>
 
-      <ClosestMetro location={userLocation} onHeadsUp={setStatus} />
+      <ClosestStation location={userLocation} onHeadsUp={setStatus} />
 
       {geoBlocked && (
         <ServiceWarning
@@ -736,6 +736,7 @@ export function TickerApp() {
             />
             <span className="min-w-0 flex-1 text-left">
               <StopName
+                badge={false}
                 className="font-bold"
                 code={selectedStop.code}
                 name={selectedStop.name}
