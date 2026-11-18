@@ -122,6 +122,14 @@ describe("updateEtaAnchors", () => {
     expect(small.backward.size).toBe(0);
   });
 
+  it("pulls back a bus that counted down to the stop while the feed held at 2", () => {
+    // Resumed after two minutes away: the estimate ran to 0, OASA still says 2.
+    const first = step(new Map(), 2, 0);
+    const resumed = step(first.anchors, 2, 2 * MINUTE);
+    expect(resumed.backward.get(key)).toBe(0);
+    expect(anchorMinutes(resumed.anchors.get(key)!, 2 * MINUTE)).toBe(2);
+  });
+
   it("does not animate changes beyond the 20-minute edge", () => {
     const first = step(new Map(), 22, 0);
     const second = step(first.anchors, 26, MINUTE);

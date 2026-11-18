@@ -1,5 +1,4 @@
 import type { LineSubscription, RecentVehicle } from "@/lib/types";
-import { ARRIVED_IF_MISSING_MINUTES } from "@/lib/vehicle-confidence";
 import { canReachBus } from "@/lib/walking";
 
 export interface CandidateArrival {
@@ -24,7 +23,6 @@ export interface SubscriptionEvaluation {
 
 export const RECENT_VEHICLE_TTL_MS = 15 * 60_000;
 export const MAX_RECENT_VEHICLES = 20;
-export const STALE_PREDICTION_GRACE_MS = 2 * 60_000;
 // Safety buffer so "leave now" fires before the walk becomes tight.
 const LEAVE_SAFETY_SECONDS = 90;
 
@@ -114,7 +112,7 @@ function completeTrackedVehicle(
 
 /**
  * Advances every selected line from its nearest bus to the next one.
- * Pass `null` arrivals when a prediction timer fires without a fresh snapshot.
+ * Pass `null` arrivals when a leave-now timer fires without a fresh snapshot.
  */
 export function evaluateSubscriptions(
   subscriptions: readonly LineSubscription[],
@@ -171,6 +169,10 @@ export function evaluateSubscriptions(
     }
 
     if (!tracked) {
+      // A snapshot without your bus says nothing about when to leave for it.
+      if (observed !== null) {
+        subscription = { ...subscription, predictedLeaveAt: null };
+      }
       const leaveAt = subscription.predictedLeaveAt
         ? new Date(subscription.predictedLeaveAt).getTime()
         : null;
@@ -191,23 +193,11 @@ export function evaluateSubscriptions(
         return beginTracking(subscription, candidates[0], now);
       }
 
-      const predictedAt = new Date(subscription.predictedZeroAt).getTime();
-      // A bus that vanishes from a snapshot a minute out has arrived, so say so
-      // as it leaves the timeline. A timer tick saw nothing, so it proves nothing.
-      const arrived =
-        observed !== null &&
-        subscription.lastObservedMinutes !== null &&
-        subscription.lastObservedMinutes <= ARRIVED_IF_MISSING_MINUTES;
-      if (predictedAt > now.getTime() && !arrived) return subscription;
-
-      const lateness = now.getTime() - predictedAt;
-      if (lateness <= STALE_PREDICTION_GRACE_MS) {
-        events.push({
-          kind: "zero",
-          lineId: subscription.lineId,
-          vehicleKey: trackedVehicleKey,
-          minutes: 0,
-        });
+      // OASA often drops a bus still showing minutes away, so vanishing proves
+      // nothing: only a reported 0 is "due now". A bus that may yet reappear is
+      // kept until it is overdue, then tracking moves on without an alert.
+      if (Date.parse(subscription.predictedZeroAt) > now.getTime()) {
+        return subscription;
       }
       return completeTrackedVehicle(subscription, candidates, now);
     }
