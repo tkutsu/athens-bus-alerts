@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import { formatDistance } from "@/lib/distance";
-import { formatTransitName } from "@/lib/display";
+import { StopName } from "@/components/stop-name";
 import type { StopSummary } from "@/lib/types";
 
 interface StopComboboxProps {
@@ -162,10 +162,12 @@ export function StopCombobox({
                 role="option"
                 type="button"
               >
-                <span className="min-w-0 truncate font-semibold text-ink">
-                  {!isSearch && `${index + 1}. `}
-                  {formatTransitName(stop.name)}
-                </span>
+                <StopName
+                  className="self-center font-semibold text-ink"
+                  code={stop.code}
+                  name={stop.name}
+                  prefix={isSearch ? "" : `${index + 1}. `}
+                />
                 {hasLocation && (
                   <span className="shrink-0 font-mono text-xs text-ink/55">
                     {formatDistance(stop.distanceMeters)}

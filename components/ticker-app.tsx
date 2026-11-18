@@ -17,6 +17,7 @@ import {
   readStoredState,
   writeStoredState,
 } from "@/lib/storage";
+import { ClosestMetro } from "@/components/closest-metro";
 import { FavoritesDialog } from "@/components/favorites-dialog";
 import { pullIntoStop } from "@/components/pull-in";
 import { Icon } from "@/components/icon";
@@ -25,13 +26,14 @@ import { ThemeSwitch } from "@/components/theme-switch";
 import { Toast } from "@/components/toast";
 import { useDeviceLocation } from "@/hooks/use-device-location";
 import { useLineAlerts } from "@/hooks/use-line-alerts";
+import { useRailConnections } from "@/hooks/use-rail-connections";
+import { loadRouteDetails } from "@/lib/route-details";
 import { StopRouteLoader } from "@/lib/stop-routes";
 import { formatTransitName } from "@/lib/display";
 import type {
   Coordinates,
   Favorite,
   LineSubscription,
-  RouteDetails,
   ServingRoute,
   StopSummary,
 } from "@/lib/types";
@@ -39,6 +41,8 @@ import { findClosestStops, searchStopNames } from "@/lib/stop-catalog";
 import { useArrivalPolling } from "@/hooks/use-arrival-polling";
 import { useStopCatalog } from "@/hooks/use-stop-catalog";
 import { StopCombobox } from "@/components/stop-combobox";
+import { StopName, StopStationNote } from "@/components/stop-name";
+import { RailLineFilter } from "@/components/rail-badges";
 import { StopMap } from "@/components/stop-map";
 import { ArrivalWarning, ServiceWarning } from "@/components/service-warning";
 import {
@@ -151,6 +155,7 @@ export function TickerApp() {
   );
   const {
     stops: catalogStops,
+    stations: catalogStations,
     error: catalogError,
     isLoading: catalogLoading,
   } = useStopCatalog();
@@ -393,6 +398,12 @@ export function TickerApp() {
     });
   }, [hasArrivalData, confidenceSnapshot, routes, selectedStop?.code]);
 
+  const shownRouteCodes = useMemo(
+    () => timelineArrivals.map((arrival) => arrival.routeCode),
+    [timelineArrivals],
+  );
+  const railConnections = useRailConnections(selectedStop?.code ?? null, shownRouteCodes);
+
   const walkSeconds = useMemo(
     () =>
       selectedStop && isUsableLocation(userLocation)
@@ -559,15 +570,7 @@ export function TickerApp() {
       selectedStopRef.current?.code === stop.code;
     try {
       if (!(await ensureNotificationPermission()) || !isCurrent()) return;
-      let detail: RouteDetails | undefined;
-      try {
-        const response = await fetch(`/api/routes/${routeCode}`, {
-          signal: AbortSignal.timeout(12_000),
-        });
-        if (response.ok) detail = (await response.json()) as RouteDetails;
-      } catch {
-        // Selection can still work when optional direction metadata is unavailable.
-      }
+      const detail = await loadRouteDetails(routeCode);
       if (!isCurrent()) return;
       setDirectionWarning(detail
         ? null
@@ -667,6 +670,8 @@ export function TickerApp() {
         <InstallApp />
       </header>
 
+      <ClosestMetro location={userLocation} onHeadsUp={setStatus} />
+
       {showArrivalWarning && (
         <ArrivalWarning
           error={arrivalError}
@@ -720,16 +725,24 @@ export function TickerApp() {
               ref={stopMarkerRef}
             />
             <span className="min-w-0 flex-1 text-left">
-              <span className="block truncate font-bold">
-                {formatTransitName(selectedStop.name)}
+              <StopName
+                className="font-bold"
+                code={selectedStop.code}
+                name={selectedStop.name}
+              />
+              <span className="mt-0.5 flex min-w-0 gap-1 text-xs text-ink/50 empty:hidden">
+                {(selectedStop.street || coordinates) && (
+                  <span className="truncate">
+                    {selectedStop.street
+                      ? formatTransitName(selectedStop.street)
+                      : `${formatDistance(selectedStop.distanceMeters)} away`}
+                  </span>
+                )}
+                <StopStationNote
+                  code={selectedStop.code}
+                  separated={Boolean(selectedStop.street || coordinates)}
+                />
               </span>
-              {(selectedStop.street || coordinates) && (
-                <span className="mt-0.5 block truncate text-xs text-ink/50">
-                  {selectedStop.street
-                    ? formatTransitName(selectedStop.street)
-                    : `${formatDistance(selectedStop.distanceMeters)} away`}
-                </span>
-              )}
             </span>
             <span className="small-action shrink-0">
               {pickerOpen ? "Track" : "Change"}
@@ -755,6 +768,7 @@ export function TickerApp() {
             }
           >
             <div className="stop-picker-shell">
+              <RailLineFilter />
               <StopMap
                 catalogError={catalogError}
                 catalogLoading={catalogLoading}
@@ -764,6 +778,7 @@ export function TickerApp() {
                 onRefreshLocation={() => locate(true)}
                 onSelectStop={chooseStop}
                 selectedStop={selectedStop}
+                stations={catalogStations}
                 stops={catalogStops}
               />
               <StopCombobox
@@ -800,6 +815,7 @@ export function TickerApp() {
           // A new stop is a fresh reveal, not every old bus departing at once.
           key={selectedStop.code}
           arrivals={timelineArrivals}
+          railConnections={railConnections}
           isLoading={arrivalsLoading || isLoadingStop || arrivalData === null}
           isUnavailable={arrivalsUnavailable}
           observedAt={arrivalData?.observedAt ?? null}

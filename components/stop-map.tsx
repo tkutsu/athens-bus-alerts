@@ -11,7 +11,25 @@ import {
   type CatalogStop,
 } from "@/lib/stop-catalog";
 import { formatTransitName } from "@/lib/display";
+import { railBadgeClass } from "@/components/rail-badges";
+import { toggleLine, useHiddenLines } from "@/hooks/use-hidden-lines";
+import { RAIL_LINES, type RailLine, type RailStation } from "@/lib/metro";
 import type { Coordinates, StopSummary } from "@/lib/types";
+
+/** The same badges as on stop names; line codes are fixed, so the HTML is safe. */
+function stationIconHtml(
+  lines: readonly RailLine[],
+  hidden: ReadonlySet<RailLine>,
+): string {
+  return `<span class="map-station">${lines
+    .map(
+      (line) =>
+        `<span class="${railBadgeClass(line, hidden.has(line))}" data-line="${line}" title="${
+          hidden.has(line) ? "Show" : "Hide"
+        } ${line}">${line}</span>`,
+    )
+    .join("")}</span>`;
+}
 
 interface StopMapProps {
   catalogError: string | null;
@@ -22,6 +40,7 @@ interface StopMapProps {
   selectedStop: StopSummary | null;
   onRefreshLocation: () => void;
   onSelectStop: (stop: StopSummary) => void;
+  stations: readonly RailStation[];
   stops: readonly CatalogStop[];
 }
 
@@ -48,11 +67,13 @@ export function StopMap({
   selectedStop,
   onRefreshLocation,
   onSelectStop,
+  stations,
   stops,
 }: StopMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<LeafletMap | null>(null);
   const markersRef = useRef<LayerGroup | null>(null);
+  const stationsRef = useRef<LayerGroup | null>(null);
   const userMarkerRef = useRef<Marker | null>(null);
   const leafletRef = useRef<typeof import("leaflet") | null>(null);
   const selectStopRef = useRef(onSelectStop);
@@ -60,6 +81,7 @@ export function StopMap({
   const updateVisibleStopsRef = useRef<(() => void) | null>(null);
   const pendingFocusCenterRef = useRef<Coordinates | null>(focusCenter);
   const [mapReady, setMapReady] = useState(false);
+  const hiddenLines = useHiddenLines();
   const [visibleStops, setVisibleStops] = useState<StopSummary[]>([]);
   const [truncated, setTruncated] = useState(false);
   const selectedStopLatitude = selectedStop?.latitude;
@@ -112,6 +134,20 @@ export function StopMap({
         maxZoom: 19,
       }).addTo(map);
 
+      // Stations sit under the stop dots (overlay pane, 400); only their badges
+      // take a tap, which shows or hides that line everywhere.
+      const stationPane = map.createPane("stations");
+      stationPane.style.zIndex = "350";
+      stationPane.style.pointerEvents = "none";
+      stationPane.addEventListener("click", (event) => {
+        const line = (event.target as HTMLElement)
+          .closest<HTMLElement>("[data-line]")
+          ?.dataset.line;
+        if (!RAIL_LINES.includes(line as RailLine)) return;
+        L.DomEvent.stopPropagation(event);
+        toggleLine(line as RailLine);
+      });
+      stationsRef.current = L.layerGroup().addTo(map);
       markersRef.current = L.layerGroup().addTo(map);
       mapRef.current = map;
       setMapReady(true);
@@ -175,6 +211,7 @@ export function StopMap({
       mapRef.current?.remove();
       mapRef.current = null;
       markersRef.current = null;
+      stationsRef.current = null;
       userMarkerRef.current = null;
       updateVisibleStopsRef.current = null;
     };
@@ -214,6 +251,27 @@ export function StopMap({
         .addTo(markers);
     }
   }, [selectedStop?.code, visibleStops]);
+
+  /** Marks every metro and tram station with its line badges, hidden lines faded. */
+  useEffect(() => {
+    const L = leafletRef.current;
+    const layer = stationsRef.current;
+    if (!L || !mapReady || !layer) return;
+
+    layer.clearLayers();
+    for (const station of stations) {
+      L.marker([station.latitude, station.longitude], {
+        icon: L.divIcon({
+          className: "map-station-anchor",
+          html: stationIconHtml(station.lines, hiddenLines),
+          iconSize: [0, 0],
+        }),
+        interactive: false,
+        keyboard: false,
+        pane: "stations",
+      }).addTo(layer);
+    }
+  }, [hiddenLines, mapReady, stations]);
 
   /** Updates the device location marker. */
   useEffect(() => {
