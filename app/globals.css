@@ -351,7 +351,7 @@ textarea:disabled {
 /* Set like a bus code: small bold mono in the line's colour on a faint wash of it. */
 .rail-badge {
   display: inline-flex;
-  height: 1.0625rem;
+  height: 1.125rem;
   flex-shrink: 0;
   align-items: center;
   border-radius: 999px;
@@ -359,7 +359,7 @@ textarea:disabled {
   padding: 0 0.4rem;
   color: var(--badge-ink, var(--line-color));
   font-family: var(--font-mono);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   font-weight: 800;
   line-height: 1;
   white-space: nowrap;
