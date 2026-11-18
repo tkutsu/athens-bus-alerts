@@ -3,14 +3,14 @@
 import { useSyncExternalStore } from "react";
 import { RAIL_LINES, type RailLine } from "@/lib/metro";
 
-// Hidden rather than shown, so a line STASY adds later shows by default.
-const STORAGE_KEY = "oasa-hidden-lines";
+// Store one selection; older multi-line preferences start with everything off.
+const STORAGE_KEY = "oasa-selected-rail-line";
 const CHANGE_EVENT = "oasa-hidden-lines-change";
-const NONE: ReadonlySet<RailLine> = new Set();
+const ALL: ReadonlySet<RailLine> = new Set(RAIL_LINES);
 
 let snapshot: { raw: string | null; lines: ReadonlySet<RailLine> } = {
   raw: null,
-  lines: NONE,
+  lines: ALL,
 };
 
 function readStorage(): string | null {
@@ -25,10 +25,9 @@ function readStorage(): string | null {
 function getSnapshot(): ReadonlySet<RailLine> {
   const raw = readStorage();
   if (raw !== snapshot.raw) {
-    const saved = raw?.split(" ") ?? [];
     snapshot = {
       raw,
-      lines: new Set(RAIL_LINES.filter((line) => saved.includes(line))),
+      lines: new Set(RAIL_LINES.filter((line) => line !== raw)),
     };
   }
   return snapshot.lines;
@@ -36,25 +35,26 @@ function getSnapshot(): ReadonlySet<RailLine> {
 
 function subscribe(onChange: () => void) {
   window.addEventListener(CHANGE_EVENT, onChange);
-  return () => window.removeEventListener(CHANGE_EVENT, onChange);
+  window.addEventListener("storage", onChange);
+  return () => {
+    window.removeEventListener(CHANGE_EVENT, onChange);
+    window.removeEventListener("storage", onChange);
+  };
 }
 
-/** Shows or hides one line's badges, map station and closest-metro readings. */
+/** Selects just this line, or clears the selection when it is already on. */
 export function toggleLine(line: RailLine): void {
-  const hidden = new Set(getSnapshot());
-  if (hidden.has(line)) hidden.delete(line);
-  else hidden.add(line);
-  const raw = RAIL_LINES.filter((item) => hidden.has(item)).join(" ");
+  const raw = getSnapshot().has(line) ? line : "";
   try {
     window.localStorage.setItem(STORAGE_KEY, raw);
   } catch {
     // Without storage the choice still holds for this visit.
-    snapshot = { raw, lines: new Set(RAIL_LINES.filter((item) => hidden.has(item))) };
+    snapshot = { raw, lines: new Set(RAIL_LINES.filter((item) => item !== raw)) };
   }
   window.dispatchEvent(new Event(CHANGE_EVENT));
 }
 
-/** The lines the rider has switched off; none until the page hydrates. */
+/** All lines are off until the rider selects one. */
 export function useHiddenLines(): ReadonlySet<RailLine> {
-  return useSyncExternalStore(subscribe, getSnapshot, () => NONE);
+  return useSyncExternalStore(subscribe, getSnapshot, () => ALL);
 }

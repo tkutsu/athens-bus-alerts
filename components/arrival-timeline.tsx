@@ -10,6 +10,8 @@ import {
   type CSSProperties,
 } from "react";
 import { BusFace } from "@/components/bus-face";
+import { railBadgeClass } from "@/components/rail-badges";
+import type { RailConnection } from "@/hooks/use-rail-connections";
 import { formatTransitName } from "@/lib/display";
 import type { VehicleConfidence } from "@/lib/vehicle-confidence";
 import { reachMinutes } from "@/lib/walking";
@@ -27,6 +29,7 @@ export interface TimelineArrival {
 
 interface ArrivalTimelineProps {
   arrivals: readonly TimelineArrival[];
+  railConnections?: ReadonlyMap<string, RailConnection>;
   isLoading: boolean;
   isUnavailable?: boolean;
   observedAt: string | null;
@@ -294,6 +297,7 @@ function ArrivalRow({
   estimatedEta,
   flippedBack = false,
   isUnavailable,
+  railConnection,
   motion,
   muted,
   onToggleRoute,
@@ -306,6 +310,7 @@ function ArrivalRow({
   callout?: boolean;
   flippedBack?: boolean;
   isUnavailable: boolean;
+  railConnection?: RailConnection;
   motion?: "arriving" | "departing" | "homing";
   onToggleRoute: (routeCode: string, lineId: string) => void;
 }) {
@@ -315,6 +320,9 @@ function ArrivalRow({
       ? "due now"
       : `${estimatedEta} minutes away`;
   const lineName = formatTransitName(arrival.lineId);
+  const connectionLabel = railConnection
+    ? `${railConnection.line}: ${railConnection.stops} ${railConnection.stops === 1 ? "stop" : "stops"}`
+    : null;
   const uncertain =
     isUnavailable || arrival.confidence === "stale" ||
     arrival.confidence === "unconfirmed";
@@ -434,7 +442,7 @@ function ArrivalRow({
         <button
           aria-label={`${
             selected ? "Disable" : "Enable"
-          } notifications for line ${lineName}, ${timingLabel}`}
+          } notifications for line ${lineName}, ${timingLabel}${connectionLabel ? `, ${connectionLabel}` : ""}`}
           aria-pressed={selected}
           className={`arrival-bus ${
             selected ? "arrival-bus-selected" : ""
@@ -452,6 +460,11 @@ function ArrivalRow({
               arrival.destination ?? arrival.description,
             )}
           </span>
+          {railConnection && (
+            <span className={railBadgeClass(railConnection.line)}>
+              {connectionLabel}
+            </span>
+          )}
         </button>
       </span>
     </div>
@@ -533,6 +546,7 @@ function timelineTopPixels(position: number, timelineHeight: number): number {
 /** Renders the ten soonest physical buses on one ETA-scaled vertical rail. */
 export function ArrivalTimeline({
   arrivals,
+  railConnections,
   isLoading,
   isUnavailable = false,
   observedAt,
@@ -977,6 +991,7 @@ export function ArrivalTimeline({
                     }
                     isUnavailable={isUnavailable}
                     key={arrival.vehicleKey}
+                    railConnection={railConnections?.get(arrival.routeCode)}
                     motion={arrivingKeys.has(arrival.vehicleKey) ? "arriving" : undefined}
                     onToggleRoute={onToggleRoute}
                   />
@@ -995,6 +1010,7 @@ export function ArrivalTimeline({
               <ArrivalRow
                 {...row}
                 isUnavailable={false}
+                railConnection={railConnections?.get(row.arrival.routeCode)}
                 motion={homing ? "homing" : "departing"}
                 onToggleRoute={onToggleRoute}
               />

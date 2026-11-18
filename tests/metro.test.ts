@@ -6,11 +6,12 @@ import {
   describeLines,
   linesNear,
   stationAt,
+  stopsToLine,
   stickyClosest,
   type ApproachState,
   type RailStation,
 } from "@/lib/metro";
-import type { Coordinates } from "@/lib/types";
+import type { Coordinates, RouteDetails } from "@/lib/types";
 
 const ORIGIN = { latitude: 37.9755, longitude: 23.7348 };
 const METERS_PER_DEGREE = 111_195;
@@ -27,6 +28,36 @@ const syntagma: RailStation = { name: "ΣΥΝΤΑΓΜΑ", lines: ["M2", "M3"], .
 const panepistimio: RailStation = { name: "ΠΑΝΕΠΙΣΤΗΜΙΟ", lines: ["M2"], ...north(900) };
 const tramStop: RailStation = { name: "Ζάππειο", lines: ["T6"], ...north(-100) };
 const stations = [syntagma, panepistimio, tramStop];
+
+describe("stopsToLine", () => {
+  const route: RouteDetails = {
+    routeCode: "1", origin: "Start", destination: "End", isCircular: false,
+    stops: [-1200, -900, -600, -350, 0, 900].map((meters, index) => ({
+      code: String(index), name: "Stop", street: null,
+      order: index * 10, ...north(meters),
+    })),
+  };
+
+  it("counts actual stops to the first connection, even with gaps in order numbers", () => {
+    expect(stopsToLine(route, "0", "M3", stations)).toBe(4);
+    expect(stopsToLine(route, "3", "M3", stations)).toBe(1);
+  });
+
+  it("reports zero when the boarding stop already connects to the line", () => {
+    expect(stopsToLine(route, "4", "M3", stations)).toBe(0);
+  });
+
+  it("ignores stations behind the boarding stop and other rail lines", () => {
+    expect(stopsToLine(route, "5", "M3", stations)).toBeNull();
+    expect(stopsToLine(route, "0", "M1", stations)).toBeNull();
+    expect(stopsToLine(route, "missing", "M3", stations)).toBeNull();
+  });
+
+  it("uses the same connection radius for tram lines", () => {
+    expect(stopsToLine(route, "0", "T6", stations)).toBe(3);
+    expect(stopsToLine(route, "0", "T7", stations)).toBeNull();
+  });
+});
 
 describe("linesNear", () => {
   it("merges lines from every station in range, metro before tram", () => {
