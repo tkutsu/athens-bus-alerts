@@ -20,6 +20,7 @@ import {
 import { FavoritesDialog } from "@/components/favorites-dialog";
 import { pullIntoStop } from "@/components/pull-in";
 import { Icon } from "@/components/icon";
+import { InstallApp } from "@/components/install-app";
 import { ThemeSwitch } from "@/components/theme-switch";
 import { Toast } from "@/components/toast";
 import { useDeviceLocation } from "@/hooks/use-device-location";
@@ -663,14 +664,17 @@ export function TickerApp() {
           <Icon name="bus" className="size-5" />
           My Pocket Bus: Athens
         </h1>
-        <button
-          className="inline-flex items-center gap-1.5 text-xs font-semibold text-ink/55 transition hover:text-signal"
-          onClick={() => setFavoritesOpen(true)}
-          type="button"
-        >
-          Favorites
-          <Icon name="star" className="size-4 shrink-0 -translate-y-px" />
-        </button>
+        <div className="flex items-center gap-4">
+          <InstallApp />
+          <button
+            className="inline-flex items-center gap-1.5 text-xs font-semibold text-ink/55 transition hover:text-signal"
+            onClick={() => setFavoritesOpen(true)}
+            type="button"
+          >
+            Favorites
+            <Icon name="star" className="size-4 shrink-0 -translate-y-px" />
+          </button>
+        </div>
       </header>
 
       {showArrivalWarning && (
