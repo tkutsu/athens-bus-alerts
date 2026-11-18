@@ -63,7 +63,7 @@ const CORRECTION_ANIMATION_MS = 1_050;
 const AHEAD_JUMP_MINUTES = 0.5;
 /** A bus may run this far ahead of its report at full speed. */
 const DRIFT_MINUTES = 0.5;
-/** Past this, a report further away than shown jumps the bus back. Repeats
+/** From this lead, a report further away than shown jumps the bus back. Repeats
     alone never get there: a bus slows toward a stop as it nears this lead. */
 const BACKTRACK_MINUTES = 2;
 const LINE_ENTRANCE_START_MS = 280;
@@ -503,7 +503,7 @@ export function updateEtaAnchors(
     if (lag < -AHEAD_JUMP_MINUTES) {
       anchors.set(vehicleKey, fresh);
       if (visibleLag < 0) forward.add(vehicleKey);
-    } else if (lag > BACKTRACK_MINUTES) {
+    } else if (lag >= BACKTRACK_MINUTES) {
       anchors.set(vehicleKey, fresh);
       if (visibleLag > 0) backward.set(vehicleKey, shown);
     } else {
@@ -741,7 +741,10 @@ export function ArrivalTimeline({
         top,
         selected,
         muted: selectedRoutes.size > 0 && !selected,
-        estimatedEta: Math.ceil(shownMinutes(arrival)),
+        // Only a reported 0 earns the tick; counting down alone stops at a minute.
+        estimatedEta: arrival.minutes === 0
+          ? 0
+          : Math.max(1, Math.ceil(shownMinutes(arrival))),
         // The target only lights up once the hop marker lands on it.
         target:
           arrival.vehicleKey === targetKey &&

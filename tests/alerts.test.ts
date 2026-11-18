@@ -196,59 +196,54 @@ describe("evaluateSubscriptions", () => {
     expect(repeated.subscriptions[0].trackedVehicleKey).toBe("2810:next");
   });
 
-  it("calls a bus due as soon as it vanishes a minute out", () => {
+  it("never calls a bus due because it vanished", () => {
+    // OASA kept both at 2 min while one pulled in, then dropped it.
+    const tracking = subscription("892", {
+      trackedVehicleKey: "892r:a",
+      predictedLeaveAt: new Date(NOW.getTime() + 30_000).toISOString(),
+      predictedZeroAt: new Date(NOW.getTime() + 90_000).toISOString(),
+      lastObservedMinutes: 2,
+    });
+    const vanished = evaluateSubscriptions([tracking], [], NOW);
+    expect(vanished.events).toEqual([]);
+    expect(vanished.subscriptions[0].trackedVehicleKey).toBe("892r:a");
+
+    // Neither the leave-now nor the due-now timer speaks for it afterwards.
+    const later = new Date(NOW.getTime() + 120_000);
+    const overdue = evaluateSubscriptions(vanished.subscriptions, null, later);
+    expect(overdue.events).toEqual([]);
+    expect(overdue.subscriptions[0].trackedVehicleKey).toBeNull();
+    expect(overdue.subscriptions[0].recentVehicles.map((v) => v.key)).toEqual(["892r:a"]);
+  });
+
+  it("keeps tracking a bus that drops out for a poll and comes back", () => {
     const tracking = subscription("218", {
       trackedVehicleKey: "2810:a",
-      predictedZeroAt: new Date(NOW.getTime() + 50_000).toISOString(),
-      lastObservedMinutes: 1,
+      predictedZeroAt: new Date(NOW.getTime() + 120_000).toISOString(),
+      lastObservedMinutes: 2,
     });
-    const waiting = subscription("500", {
-      trackedVehicleKey: "5000:b",
-      predictedZeroAt: new Date(NOW.getTime() + 150_000).toISOString(),
-      lastObservedMinutes: 3,
-    });
-    const result = evaluateSubscriptions([tracking, waiting], [], NOW);
-
-    expect(result.events).toEqual([
+    const gone = evaluateSubscriptions([tracking], [], NOW);
+    const back = evaluateSubscriptions(
+      gone.subscriptions,
+      [{ lineId: "218", vehicleKey: "2810:a", minutes: 0 }],
+      new Date(NOW.getTime() + 30_000),
+    );
+    expect(back.events).toEqual([
       { kind: "zero", lineId: "218", vehicleKey: "2810:a", minutes: 0 },
     ]);
-    expect(result.subscriptions[1].trackedVehicleKey).toBe("5000:b");
   });
 
-  it("does not call a bus due when a timer fires without a snapshot", () => {
+  it("still sends leave-now from its timer between polls", () => {
     const tracking = subscription("218", {
       trackedVehicleKey: "2810:a",
-      predictedZeroAt: new Date(NOW.getTime() + 50_000).toISOString(),
-      lastObservedMinutes: 1,
+      predictedLeaveAt: NOW.toISOString(),
+      predictedZeroAt: new Date(NOW.getTime() + 300_000).toISOString(),
+      lastObservedMinutes: 6,
     });
     const result = evaluateSubscriptions([tracking], null, NOW);
-
-    expect(result.events).toEqual([]);
-    expect(result.subscriptions[0].trackedVehicleKey).toBe("2810:a");
-  });
-
-  it("uses a missing vehicle prediction but discards stale predictions", () => {
-    const active = subscription("218", {
-      trackedVehicleKey: "2810:a",
-      predictedZeroAt: new Date(NOW.getTime() - 60_000).toISOString(),
-      lastObservedMinutes: 1,
-    });
-    const stale = subscription("500", {
-      trackedVehicleKey: "5000:b",
-      predictedZeroAt: new Date(NOW.getTime() - 180_000).toISOString(),
-      lastObservedMinutes: 1,
-    });
-    const result = evaluateSubscriptions([active, stale], [], NOW);
-
     expect(result.events).toEqual([
-      {
-        kind: "zero",
-        lineId: "218",
-        vehicleKey: "2810:a",
-        minutes: 0,
-      },
+      { kind: "leave-now", lineId: "218", vehicleKey: "2810:a", minutes: 6 },
     ]);
-    expect(result.subscriptions[1].trackedVehicleKey).toBeNull();
   });
 
   it("prunes expired and excessive completion records", () => {
