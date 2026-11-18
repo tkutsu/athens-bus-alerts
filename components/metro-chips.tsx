@@ -9,7 +9,8 @@ export function MetroChips({
   label = (description) => `near ${description}`,
 }: {
   lines: readonly RailLine[];
-  label?: (description: string) => string;
+  /** Screen-reader words; `null` when the surrounding control already says it. */
+  label?: ((description: string) => string) | null;
 }) {
   if (lines.length === 0) return null;
 
@@ -24,7 +25,7 @@ export function MetroChips({
           {line.slice(1)}
         </span>
       ))}
-      <span className="sr-only">{label(describeLines(lines))}</span>
+      {label && <span className="sr-only">{label(describeLines(lines))}</span>}
     </span>
   );
 }
