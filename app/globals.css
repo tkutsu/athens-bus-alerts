@@ -403,8 +403,7 @@ textarea:disabled {
 .flap-glyph {
   display: inline-block;
   white-space: pre;
-  /* Falls fast, then rests a moment before the next letter, as a flap does. */
-  animation: flap-drop 40ms cubic-bezier(0.3, 0.7, 0.4, 1) both;
+  animation: flap-drop 180ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 @keyframes flap-drop {

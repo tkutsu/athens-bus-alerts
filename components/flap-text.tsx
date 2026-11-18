@@ -2,36 +2,28 @@
 
 import { useEffect, useRef, useState } from "react";
 
-/** Each slot starts this long after the one before it, so changes ripple left to right. */
-const STAGGER_MS = 18;
-/** How long each passing letter shows before the next one drops in. The CSS
-    drop is shorter, so each letter lands and rests before the next one falls. */
-const FLIP_MS = 60;
-/** Letters a slot passes through before it lands. */
-const FLIPS = 4;
+/** Changing letters turn one at a time, this far apart, left to right. */
+const STAGGER_MS = 30;
 
-const GREEK = "αβγδεζηθικλμνξοπρστυφχψω";
-const LATIN = "abcdefghijklmnopqrstuvwxyz";
-const DIGITS = "0123456789";
-
-/** A passing letter from the same script as where the slot is heading. */
-function passing(target: string, slot: number, flip: number): string {
-  const glyphs = /\d/.test(target) ? DIGITS : /[α-ωά-ώ]/i.test(target) ? GREEK : LATIN;
-  return glyphs[(slot * 7 + flip * 11) % glyphs.length];
-}
-
-/** The slots `from` shows `elapsed` ms into flipping to `to`, and whether all have landed. */
+/**
+ * The slots `from` shows `elapsed` ms into turning to `to`, and whether all
+ * have turned. Each letter that differs turns once, straight to its new one;
+ * letters that stay the same don't hold up the ones after them.
+ */
 export function frame(from: readonly string[], to: readonly string[], elapsed: number) {
   const slots: string[] = [];
   let landed = true;
+  let turn = 0;
   for (let slot = 0; slot < Math.max(from.length, to.length); slot++) {
     const source = from[slot] ?? "";
     const target = to[slot] ?? "";
-    const flip = Math.floor((elapsed - slot * STAGGER_MS) / FLIP_MS);
     let glyph = target;
-    if (source !== target && flip < FLIPS) {
-      landed = false;
-      glyph = flip < 0 ? source : passing(target, slot, flip);
+    if (source !== target) {
+      if (elapsed < turn * STAGGER_MS) {
+        landed = false;
+        glyph = source;
+      }
+      turn++;
     }
     // Slots past the end of the shorter text come and go.
     if (glyph) slots.push(glyph);
@@ -40,15 +32,15 @@ export function frame(from: readonly string[], to: readonly string[], elapsed: n
 }
 
 /**
- * Text that changes like a split-flap departure board: each letter that
- * differs flips through a few others before landing on the new one.
+ * Text that changes like a departure board: the letters that differ turn
+ * over to their new ones one at a time, each dropping into its slot.
  */
 export function FlapText({ className, text }: { className?: string; text: string }) {
   const [slots, setSlots] = useState(() => [...text]);
   const slotsRef = useRef(slots);
 
   useEffect(() => {
-    // Picks up from whatever shows now, so a change mid-flip carries on smoothly.
+    // Picks up from whatever shows now, so a change mid-turn carries on smoothly.
     const from = slotsRef.current;
     const to = [...text];
     const show = (next: string[]) => {
@@ -64,7 +56,8 @@ export function FlapText({ className, text }: { className?: string; text: string
     const start = performance.now();
     const tick = (now: number) => {
       const { slots: next, landed } = frame(from, to, now - start);
-      show(next);
+      // Most frames fall between two turns and change nothing.
+      if (next.join("") !== slotsRef.current.join("")) show(next);
       if (!landed) request = requestAnimationFrame(tick);
     };
     request = requestAnimationFrame(tick);
