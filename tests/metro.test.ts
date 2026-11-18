@@ -34,7 +34,7 @@ describe("linesNear", () => {
   });
 
   it("ignores stations beyond the chip radius", () => {
-    expect(linesNear(north(250), stations)).toEqual([]);
+    expect(linesNear(north(350), stations)).toEqual([]);
   });
 });
 

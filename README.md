@@ -26,7 +26,7 @@ pnpm sync:stops
 ```
 
 The same file holds the metro and tram stations from STASY's GTFS. A bus stop
-within 200 m of a station gets that station's line numbers next to its name,
+within 300 m of a station gets that station's line numbers next to its name,
 and the line under the header shows the closest metro station while you have a
 GPS fix. The metro switch next to the theme switch hides both. STASY ships its
 feed as a RAR, so the sync needs `bsdtar` from libarchive.

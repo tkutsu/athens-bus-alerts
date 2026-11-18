@@ -16,11 +16,11 @@ export interface StationDistance {
 }
 
 /**
- * The stops at a station, about 3 minutes on foot. Station points are the
+ * The stops around a station, 4–5 minutes on foot. Station points are the
  * centre of the platforms, and big interchanges have their entrances and own
- * named stops up to ~180 m from it (Syntagma), so 150 m missed real ones.
+ * named stops well away from it (Syntagma's reach ~280 m).
  */
-export const CHIP_RADIUS_METERS = 200;
+export const CHIP_RADIUS_METERS = 300;
 /** A new closest station must beat the current one by this much to take over. */
 const SWITCH_MARGIN_METERS = 50;
 /** About two bus stops, or 2–3 minutes at Athens bus speeds. */
