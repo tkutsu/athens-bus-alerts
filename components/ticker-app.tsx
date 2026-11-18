@@ -20,6 +20,7 @@ import {
 import { FavoritesDialog } from "@/components/favorites-dialog";
 import { pullIntoStop } from "@/components/pull-in";
 import { Icon } from "@/components/icon";
+import { InstallApp } from "@/components/install-app";
 import { ThemeSwitch } from "@/components/theme-switch";
 import { Toast } from "@/components/toast";
 import { useDeviceLocation } from "@/hooks/use-device-location";
@@ -663,14 +664,7 @@ export function TickerApp() {
           <Icon name="bus" className="size-5" />
           My Pocket Bus: Athens
         </h1>
-        <button
-          className="inline-flex items-center gap-1.5 text-xs font-semibold text-ink/55 transition hover:text-signal"
-          onClick={() => setFavoritesOpen(true)}
-          type="button"
-        >
-          Favorites
-          <Icon name="star" className="size-4 shrink-0 -translate-y-px" />
-        </button>
+        <InstallApp />
       </header>
 
       {showArrivalWarning && (
@@ -826,6 +820,7 @@ export function TickerApp() {
         selectedStop={selectedStop}
         subscriptions={subscriptions}
         onEnable={enableFavorite}
+        onForget={forgetEverything}
         setStatus={setStatus}
         setError={setError}
       />
@@ -853,11 +848,12 @@ export function TickerApp() {
         <p>Live data by OASA</p>
         <ThemeSwitch />
         <button
-          className="small-action justify-self-end underline"
-          onClick={forgetEverything}
+          className="inline-flex items-center gap-1.5 justify-self-end text-xs font-semibold text-ink/55 transition hover:text-signal"
+          onClick={() => setFavoritesOpen(true)}
           type="button"
         >
-          Forget saved data
+          Favorites
+          <Icon name="star" className="size-4 shrink-0 -translate-y-px" />
         </button>
       </footer>
     </main>
