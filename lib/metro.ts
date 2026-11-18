@@ -15,8 +15,12 @@ export interface StationDistance {
   meters: number;
 }
 
-/** The stop on top of a station or across the street: 2–3 minutes on foot. */
-export const CHIP_RADIUS_METERS = 150;
+/**
+ * The stops at a station, about 3 minutes on foot. Station points are the
+ * centre of the platforms, and big interchanges have their entrances and own
+ * named stops up to ~180 m from it (Syntagma), so 150 m missed real ones.
+ */
+export const CHIP_RADIUS_METERS = 200;
 /** A new closest station must beat the current one by this much to take over. */
 const SWITCH_MARGIN_METERS = 50;
 /** About two bus stops, or 2–3 minutes at Athens bus speeds. */
@@ -43,6 +47,36 @@ export function linesNear(
     }
   }
   return RAIL_LINES.filter((line) => lines.has(line));
+}
+
+/** The station a stop is "by": the nearest metro in range, else the nearest tram. */
+export function stationAt(
+  point: Coordinates,
+  stations: readonly RailStation[],
+  radius = CHIP_RADIUS_METERS,
+): RailStation | null {
+  const inRange = stations
+    .map((station) => ({ station, meters: haversineMeters(point, station) }))
+    .filter(({ meters }) => meters <= radius)
+    .sort((a, b) => a.meters - b.meters);
+  return (
+    inRange.find(({ station }) => station.lines.some(isMetroLine)) ??
+    inRange[0]
+  )?.station ?? null;
+}
+
+/** Words for screen readers, such as "metro lines 2 and 3 and tram line 6". */
+export function describeLines(lines: readonly RailLine[]): string {
+  const mode = (name: string, numbers: string[]) =>
+    numbers.length === 0
+      ? []
+      : [
+          `${name} ${numbers.length === 1 ? "line" : "lines"} ${numbers.join(" and ")}`,
+        ];
+  return [
+    ...mode("metro", lines.filter(isMetroLine).map((line) => line.slice(1))),
+    ...mode("tram", lines.filter((line) => !isMetroLine(line)).map((line) => line.slice(1))),
+  ].join(" and ");
 }
 
 /** The nearest station served by the metro, ignoring tram-only stops. */

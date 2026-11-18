@@ -24,6 +24,11 @@
   --toast-error: #f3e3dc;
   --toast-error-ink: #7f1d1d;
   --toast-neutral: #e5e1d7;
+  /* Line colours as on station signs; the tram's light green takes dark digits. */
+  --line-m1: #007a33;
+  --line-m2: #da291c;
+  --line-m3: #10069f;
+  --line-tram: #78be20;
   --font-display: "Avenir Next", Avenir, "Segoe UI", sans-serif;
   --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   /* The rail's centre line, shared by the stop card's marker and every bus circle.
@@ -49,6 +54,8 @@
   --toast-error: #3b211d;
   --toast-error-ink: #ffc5b8;
   --toast-neutral: #27312b;
+  /* Line 3's deep blue disappears on the dark paper, so it lifts a step. */
+  --line-m3: #3b45d6;
 }
 
 * {
@@ -343,6 +350,47 @@ textarea:disabled {
 /* Switching the metro off removes the whole layer: chips, readout, labels. */
 :root[data-metro="off"] .metro-layer {
   display: none !important;
+}
+
+.metro-chips {
+  display: inline-flex;
+  flex-shrink: 0;
+  gap: 0.2em;
+}
+
+.metro-chip {
+  display: inline-grid;
+  width: 1.3em;
+  height: 1.3em;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--line-color);
+  /* Keeps the tram's green on light paper and line 3's blue on dark paper outlined. */
+  box-shadow: inset 0 0 0 1px rgb(var(--ink-rgb) / 0.2);
+  color: #fff;
+  font-size: 0.8em;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.metro-chip-m1 {
+  --line-color: var(--line-m1);
+}
+
+.metro-chip-m2 {
+  --line-color: var(--line-m2);
+}
+
+.metro-chip-m3 {
+  --line-color: var(--line-m3);
+}
+
+.metro-chip-t6,
+.metro-chip-t7 {
+  --line-color: var(--line-tram);
+  border-radius: 0.25em;
+  color: #17201b;
 }
 
 .stop-map-shell {

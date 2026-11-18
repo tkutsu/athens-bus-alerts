@@ -3,7 +3,9 @@ import {
   INITIAL_APPROACH,
   approach,
   closestMetro,
+  describeLines,
   linesNear,
+  stationAt,
   stickyClosest,
   type ApproachState,
   type RailStation,
@@ -32,7 +34,27 @@ describe("linesNear", () => {
   });
 
   it("ignores stations beyond the chip radius", () => {
-    expect(linesNear(north(200), stations)).toEqual([]);
+    expect(linesNear(north(250), stations)).toEqual([]);
+  });
+});
+
+describe("stationAt", () => {
+  it("prefers a metro station in range over a nearer tram stop", () => {
+    expect(stationAt(north(-80), stations)).toBe(syntagma);
+  });
+
+  it("falls back to the tram, and to nothing out of range", () => {
+    expect(stationAt(north(-100), [tramStop])).toBe(tramStop);
+    expect(stationAt(north(400), stations)).toBeNull();
+  });
+});
+
+describe("describeLines", () => {
+  it("names each mode once, in chip order", () => {
+    expect(describeLines(["M2", "M3", "T6"])).toBe(
+      "metro lines 2 and 3 and tram line 6",
+    );
+    expect(describeLines(["M1"])).toBe("metro line 1");
   });
 });
 
