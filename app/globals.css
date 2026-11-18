@@ -369,15 +369,14 @@ textarea:disabled {
   color: rgb(var(--ink-rgb) / 0.6);
 }
 
-/* The toggles above the stop picker: the same badges at a size made for a thumb. */
-/* Spaced and ruled like the stop list's "Closest stops" header. */
+/* The line picker under the header: the same badges at a size made for a thumb.
+   Pulled up toward the header, with the closest station tucked in below it. */
 .rail-filter {
   display: flex;
   flex-shrink: 0;
   align-items: center;
   gap: 0.375rem;
-  border-bottom: 1px solid rgb(var(--ink-rgb) / 0.1);
-  padding: 0.5rem 0.75rem;
+  margin: -0.5rem 0 0.75rem;
 }
 
 .rail-filter-label {

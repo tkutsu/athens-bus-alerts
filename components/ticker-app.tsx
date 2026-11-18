@@ -673,6 +673,8 @@ export function TickerApp() {
         <InstallApp />
       </header>
 
+      {/* Outside the picker, so the line can change while you track a stop. */}
+      <RailLineFilter />
       <ClosestStation location={userLocation} onHeadsUp={setStatus} />
 
       {geoBlocked && (
@@ -779,7 +781,6 @@ export function TickerApp() {
             }
           >
             <div className="stop-picker-shell">
-              <RailLineFilter />
               <StopMap
                 catalogError={catalogError}
                 catalogLoading={catalogLoading}
