@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { MetroChips } from "@/components/metro-chips";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { RailBadges } from "@/components/rail-badges";
+import { useHiddenLines } from "@/hooks/use-hidden-lines";
 import { useStopCatalog } from "@/hooks/use-stop-catalog";
 import { formatTransitName } from "@/lib/display";
 import { formatDistance } from "@/lib/distance";
@@ -25,10 +26,10 @@ function calmDistance(meters: number): string {
 }
 
 function headsUpMessage({ station, meters }: StationDistance): string {
-  const numbers = station.lines.filter(isMetroLine).map((line) => line.slice(1));
+  const lines = station.lines.filter(isMetroLine);
   return `Metro coming up: ${formatTransitName(station.name)}, about ${formatDistance(
     Math.round(meters / 50) * 50,
-  )} ahead. ${numbers.length === 1 ? "Line" : "Lines"} ${numbers.join(" and ")}.`;
+  )} ahead. ${lines.length === 1 ? "Line" : "Lines"} ${lines.join(" and ")}.`;
 }
 
 /**
@@ -42,7 +43,17 @@ export function ClosestMetro({
   location: UserLocation | null;
   onHeadsUp: (message: string) => void;
 }) {
-  const { stations } = useStopCatalog();
+  const { stations: allStations } = useStopCatalog();
+  const hiddenLines = useHiddenLines();
+  // Only stations on a metro line the rider still shows; the same objects, so
+  // the sticky choice keeps recognising its station.
+  const stations = useMemo(
+    () =>
+      allStations.filter((station) =>
+        station.lines.some((line) => isMetroLine(line) && !hiddenLines.has(line)),
+      ),
+    [allStations, hiddenLines],
+  );
   const [closest, setClosest] = useState<StationDistance | null>(null);
   const [visible, setVisible] = useState(false);
   const previousRef = useRef<RailStation | null>(null);
@@ -62,11 +73,7 @@ export function ClosestMetro({
     if (next && location) {
       const result = approach(approachRef.current, location, next);
       approachRef.current = result.state;
-      // The approach still advances while switched off, so turning it on later
-      // never replays a stale heads-up.
-      if (result.headsUp && document.documentElement.dataset.metro !== "off") {
-        onHeadsUpRef.current(headsUpMessage(result.headsUp));
-      }
+      if (result.headsUp) onHeadsUpRef.current(headsUpMessage(result.headsUp));
       setClosest(next);
     }
     // The last station stays rendered while the line collapses away.
@@ -78,13 +85,13 @@ export function ClosestMetro({
   return (
     <div
       aria-hidden={!visible}
-      className="metro-layer closest-metro"
+      className="closest-metro"
       data-visible={visible}
     >
       {closest && (
         <p className={`closest-metro-line ${isHere ? "closest-metro-here" : ""}`}>
           <span className="sr-only">Closest metro: </span>
-          <MetroChips
+          <RailBadges
             label={(description) => `${description}, `}
             lines={closest.station.lines.filter(isMetroLine)}
           />

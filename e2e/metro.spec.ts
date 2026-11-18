@@ -32,16 +32,20 @@ async function mockCatalogue(page: Page) {
   );
 }
 
-async function openNearby(context: BrowserContext, page: Page, at = north(0)) {
+async function openApp(context: BrowserContext, page: Page, at = north(0)) {
   await context.grantPermissions(["geolocation"]);
   await context.setGeolocation(at);
   await mockCatalogue(page);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
+}
+
+async function openNearby(context: BrowserContext, page: Page, at = north(0)) {
+  await openApp(context, page, at);
   await page.getByPlaceholder("Search stop name").click();
 }
 
-test("chips mark the stop at a station, and the switch removes the whole layer", async ({
+test("badges mark the stop at a station, and each line can be hidden from the row", async ({
   context,
   page,
 }) => {
@@ -49,17 +53,37 @@ test("chips mark the stop at a station, and the switch removes the whole layer",
 
   const syntagma = page.getByRole("option", { name: /συνταγμα/ });
   await expect(syntagma).toContainText("near metro lines 2 and 3 and tram line 6");
-  await expect(page.getByRole("option", { name: /μακρια/ }).locator(".metro-chip")).toHaveCount(0);
+  await expect(syntagma.locator(".rail-badge")).toHaveText(["M2", "M3", "T6"]);
+  await expect(page.getByRole("option", { name: /μακρια/ }).locator(".rail-badge")).toHaveCount(0);
   await expect(page.getByText("Closest metro:")).toBeAttached();
 
-  await page.getByRole("switch", { name: "Show metro" }).click();
-  await expect(page.locator("html")).toHaveAttribute("data-metro", "off");
-  await expect(syntagma.locator(".metro-chips")).toBeHidden();
-  await expect(page.locator(".closest-metro")).toBeHidden();
+  const lines = page.getByRole("group", { name: "Metro and tram lines" });
+  await lines.getByRole("button", { name: "metro line 2" }).click();
+  await lines.getByRole("button", { name: "metro line 3" }).click();
+  await expect(lines.getByRole("button", { name: "metro line 2" })).toHaveAttribute("aria-pressed", "false");
+  // Tapping the row closes the stop list, as any tap outside it does.
+  await page.getByPlaceholder("Search stop name").click();
+  await expect(syntagma.locator(".rail-badge")).toHaveText(["T6"]);
+  // No metro line left to show, so the closest-metro line goes too.
+  await expect(page.locator(".closest-metro")).toHaveAttribute("data-visible", "false");
 
   await page.reload();
-  await expect(page.locator("html")).toHaveAttribute("data-metro", "off");
-  await expect(page.getByRole("switch", { name: "Show metro" })).not.toBeChecked();
+  await expect(
+    page.getByRole("group", { name: "Metro and tram lines" }).getByRole("button", { name: "metro line 3" }),
+  ).toHaveAttribute("aria-pressed", "false");
+});
+
+test("tapping a line on the map shows or hides it", async ({ context, page }) => {
+  await openApp(context, page, north(-150));
+  const lines = page.getByRole("group", { name: "Metro and tram lines" });
+  const mapBadge = page.locator('.map-station [data-line="M2"]');
+
+  await mapBadge.click();
+  await expect(lines.getByRole("button", { name: "metro line 2" })).toHaveAttribute("aria-pressed", "false");
+  await expect(mapBadge).toHaveClass(/rail-badge-off/);
+
+  await mapBadge.click();
+  await expect(lines.getByRole("button", { name: "metro line 2" })).toHaveAttribute("aria-pressed", "true");
 });
 
 test("the closest metro shows a calm distance and a heads-up once on approach", async ({
@@ -75,7 +99,7 @@ test("the closest metro shows a calm distance and a heads-up once on approach", 
     await context.setGeolocation(north(meters));
     await expect(readout).toContainText(`${-meters} meters`);
   }
-  await expect(page.getByText(/Metro coming up: συνταγμα, about 550 meters ahead\. Lines 2 and 3\./)).toBeVisible();
+  await expect(page.getByText(/Metro coming up: συνταγμα, about 550 meters ahead\. Lines M2 and M3\./)).toBeVisible();
 
   await page.getByRole("button", { name: "Dismiss message" }).click();
   for (const meters of [-400, -200, -50]) {

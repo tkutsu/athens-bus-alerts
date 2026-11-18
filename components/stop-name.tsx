@@ -1,11 +1,12 @@
 "use client";
 
-import { MetroChips } from "@/components/metro-chips";
+import { RailBadges } from "@/components/rail-badges";
+import { useHiddenLines } from "@/hooks/use-hidden-lines";
 import { useStopRail } from "@/hooks/use-stop-rail";
 import { formatTransitName } from "@/lib/display";
 import { isMetroLine } from "@/lib/metro";
 
-/** A stop's name and the lines at it. The name truncates; the chips never do. */
+/** A stop's name and the lines at it. The name truncates; the badges never do. */
 export function StopName({
   code,
   name,
@@ -25,7 +26,7 @@ export function StopName({
         {prefix}
         {formatTransitName(name)}
       </span>
-      <MetroChips lines={lines} />
+      <RailBadges lines={lines} />
     </span>
   );
 }
@@ -40,11 +41,13 @@ export function StopStationNote({
   separated?: boolean;
 }) {
   const { station } = useStopRail(code);
-  if (!station) return null;
+  const hiddenLines = useHiddenLines();
+  const shown = station?.lines.filter((line) => !hiddenLines.has(line)) ?? [];
+  if (!station || shown.length === 0) return null;
 
-  const mode = station.lines.some(isMetroLine) ? "metro" : "tram";
+  const mode = shown.some(isMetroLine) ? "metro" : "tram";
   return (
-    <span className="metro-layer truncate">
+    <span className="truncate">
       {separated && "· "}by {formatTransitName(station.name)} {mode}
     </span>
   );

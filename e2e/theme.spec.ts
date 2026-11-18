@@ -16,10 +16,9 @@ test("defaults to the system theme and persists an explicit choice", async ({
   const themeSwitch = page.getByRole("switch", { name: "Use light mode" });
   await expect(themeSwitch).toBeChecked();
   await expect(page.locator("header").getByRole("switch")).toHaveCount(0);
-  // Theme and metro switches sit together in the footer's centre.
-  await expect(page.locator("footer").getByRole("switch")).toHaveCount(2);
+  await expect(page.locator("footer").getByRole("switch")).toHaveCount(1);
   const centerOffset = await themeSwitch.evaluate((element) => {
-    const switchBounds = element.parentElement!.getBoundingClientRect();
+    const switchBounds = element.getBoundingClientRect();
     const footerBounds = element.closest("footer")!.getBoundingClientRect();
     return Math.abs(
       switchBounds.left + switchBounds.width / 2 -
