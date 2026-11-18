@@ -28,15 +28,20 @@ function subscribe(onChange: () => void) {
   };
 }
 
-/** Picks this line, or clears the choice when it is already picked. */
-export function toggleLine(line: RailLine): void {
-  fallback = getSnapshot() === line ? "" : line;
+/** Picks this line, or clears the choice with null. */
+export function selectLine(line: RailLine | null): void {
+  fallback = line ?? "";
   try {
     window.localStorage.setItem(STORAGE_KEY, fallback);
   } catch {
     // The fallback keeps it.
   }
   window.dispatchEvent(new Event(CHANGE_EVENT));
+}
+
+/** Picks this line, or clears the choice when it is already picked. */
+export function toggleLine(line: RailLine): void {
+  selectLine(getSnapshot() === line ? null : line);
 }
 
 /** The line the rider is heading for; none until they pick one. */
