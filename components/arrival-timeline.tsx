@@ -462,8 +462,9 @@ function ArrivalRow({
           </span>
         </button>
         {railConnection && (
-          // The button's label already reads this out.
-          <span aria-hidden="true" className="arrival-connection">
+          // The button's label already reads this out. Keyed by line, so a new
+          // line plays the entrance again.
+          <span aria-hidden="true" className="arrival-connection" key={railConnection.line}>
             <span className={railBadgeClass(railConnection.line)}>
               {railConnection.line}
             </span>{" "}

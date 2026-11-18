@@ -17,7 +17,6 @@ import {
   readStoredState,
   writeStoredState,
 } from "@/lib/storage";
-import { ClosestStation } from "@/components/closest-station";
 import { FavoritesDialog } from "@/components/favorites-dialog";
 import { pullIntoStop } from "@/components/pull-in";
 import { Icon } from "@/components/icon";
@@ -677,8 +676,7 @@ export function TickerApp() {
       </header>
 
       {/* Outside the picker, so the line can change while you track a stop. */}
-      <RailLineFilter />
-      <ClosestStation location={userLocation} onHeadsUp={setStatus} />
+      <RailLineFilter location={userLocation} onHeadsUp={setStatus} />
 
       {geoBlocked && (
         <ServiceWarning
