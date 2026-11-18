@@ -108,6 +108,8 @@ test("tapping a line on the map picks or clears it", async ({ context, page }) =
   await openApp(context, page, north(-150));
   const lines = page.getByRole("group", { name: "Line you're heading for" });
   const mapBadge = page.locator('.map-station [data-line="M2"]');
+  // With no line picked, every station shows its colours.
+  await expect(mapBadge).not.toHaveClass(/rail-badge-off/);
 
   await mapBadge.click();
   await expect(lines.getByRole("button", { name: "metro line 2" })).toHaveAttribute("aria-pressed", "true");
@@ -121,6 +123,7 @@ test("tapping a line on the map picks or clears it", async ({ context, page }) =
   await expect(lines.getByRole("button", { name: "metro line 3" })).toHaveAttribute("aria-pressed", "false");
   await mapBadge.click();
   await expect(lines.locator('[aria-pressed="true"]')).toHaveCount(0);
+  await expect(page.locator('.map-station [data-line="M3"]')).not.toHaveClass(/rail-badge-off/);
 });
 
 test("both tram lines use yellow in light and dark themes", async ({ context, page }) => {
@@ -213,13 +216,13 @@ for (const width of [390, 1280]) {
     await lines.getByRole("button", { name: "metro line 3" }).click();
     await page.getByPlaceholder("Search stop name").click();
     await page.getByRole("option", { name: /αρχη/ }).click();
-    const badges = page.locator(".arrival-tag > .rail-badge");
-    await expect(badges).toHaveText(["4 stops to M3", "4 stops to M3"]);
+    const badges = page.locator(".arrival-connection");
+    await expect(badges).toHaveText(["M3 4 stops", "M3 4 stops"]);
     await expect(page.getByRole("button", { name: /notifications for line 060.*4 stops to M3/ })).toHaveCount(1);
     await expect(page.getByRole("button", { name: /notifications for line 060, 5 minutes away, 4 stops to M3/ })).toBeVisible();
     await expect(page.getByRole("button", { name: /notifications for line 061.*4 stops to M3/ })).toHaveCount(1);
     await page.getByRole("button", { name: /Enable notifications for line 060, 5 minutes away/ }).click();
-    const selectedBadge = page.locator(".arrival-bus-selected + .rail-badge").first();
+    const selectedBadge = page.locator(".arrival-bus-selected + .arrival-connection > .rail-badge").first();
     for (const theme of ["light", "dark"] as const) {
       if (theme === "dark") await page.getByRole("switch", { name: "Use dark mode" }).click();
       await expect.poll(() => badgeContrast(selectedBadge)).toBeGreaterThanOrEqual(4.5);
@@ -241,7 +244,7 @@ for (const width of [390, 1280]) {
     await page.locator(".selected-stop-row").click();
     await lines.getByRole("button", { name: "tram line 6" }).click();
     await page.locator(".selected-stop-row").click();
-    await expect(badges).toHaveText(["3 stops to T6", "3 stops to T6"]);
+    await expect(badges).toHaveText(["T6 3 stops", "T6 3 stops"]);
     await expect(selectedBadge).toBeVisible();
     for (const theme of ["light", "dark"] as const) {
       if (theme === "dark") await page.getByRole("switch", { name: "Use dark mode" }).click();

@@ -462,8 +462,12 @@ function ArrivalRow({
           </span>
         </button>
         {railConnection && (
-          <span aria-hidden="true" className={railBadgeClass(railConnection.line)}>
-            {connectionLabel}
+          // The button's label already reads this out.
+          <span aria-hidden="true" className="arrival-connection">
+            <span className={railBadgeClass(railConnection.line)}>
+              {railConnection.line}
+            </span>{" "}
+            {railConnection.stops} {railConnection.stops === 1 ? "stop" : "stops"}
           </span>
         )}
       </span>
