@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import type { RailStation } from "@/lib/metro";
 import type {
   CatalogStop,
   StopCatalogPayload,
@@ -8,12 +9,21 @@ import type {
 
 const CATALOGUE_RETRY_MS = 5_000;
 
-let catalogueRequest: Promise<CatalogStop[]> | null = null;
+interface Catalogue {
+  stops: CatalogStop[];
+  stations: RailStation[];
+}
+
+const EMPTY_CATALOGUE: Catalogue = { stops: [], stations: [] };
+
+let catalogueRequest: Promise<Catalogue> | null = null;
 
 /** Loads the static stop catalogue once and shares it across client components. */
-function loadCatalogue(): Promise<CatalogStop[]> {
+function loadCatalogue(): Promise<Catalogue> {
   if (!catalogueRequest) {
-    catalogueRequest = fetch("/data/stops.json", { cache: "force-cache" })
+    // Follows the file's caching headers rather than any cached copy forever,
+    // so a re-synced catalogue reaches browsers that hold an older one.
+    catalogueRequest = fetch("/data/stops.json")
       .then(async (response) => {
         if (!response.ok) {
           throw new Error("Could not load the stop catalogue.");
@@ -22,7 +32,10 @@ function loadCatalogue(): Promise<CatalogStop[]> {
         if (!Array.isArray(payload.stops)) {
           throw new Error("The stop catalogue is invalid.");
         }
-        return payload.stops;
+        return {
+          stops: payload.stops,
+          stations: Array.isArray(payload.stations) ? payload.stations : [],
+        };
       })
       .catch((error) => {
         catalogueRequest = null;
@@ -35,7 +48,7 @@ function loadCatalogue(): Promise<CatalogStop[]> {
 
 /** Exposes the browser-cached catalogue, retrying until it loads. */
 export function useStopCatalog() {
-  const [stops, setStops] = useState<CatalogStop[]>([]);
+  const [catalogue, setCatalogue] = useState<Catalogue>(EMPTY_CATALOGUE);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -45,9 +58,9 @@ export function useStopCatalog() {
 
     const load = () => {
       void loadCatalogue()
-        .then((catalogue) => {
+        .then((loaded) => {
           if (!active) return;
-          setStops(catalogue);
+          setCatalogue(loaded);
           setError(null);
         })
         .catch((loadError: unknown) => {
@@ -71,5 +84,5 @@ export function useStopCatalog() {
     };
   }, []);
 
-  return { stops, error, isLoading };
+  return { ...catalogue, error, isLoading };
 }

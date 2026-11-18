@@ -24,6 +24,11 @@
   --toast-error: #f3e3dc;
   --toast-error-ink: #7f1d1d;
   --toast-neutral: #e5e1d7;
+  /* Line colours as on station signs, deepened where needed to read as text (4.5:1). */
+  --line-m1: #007a33;
+  --line-m2: #c8241a;
+  --line-m3: #10069f;
+  --line-tram: #ffda1f;
   --font-display: "Avenir Next", Avenir, "Segoe UI", sans-serif;
   --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   /* The rail's centre line, shared by the stop card's marker and every bus circle.
@@ -49,6 +54,11 @@
   --toast-error: #3b211d;
   --toast-error-ink: #ffc5b8;
   --toast-neutral: #27312b;
+  /* The same hues lifted to read on the dark paper. */
+  --line-m1: #3ec274;
+  --line-m2: #ff6f61;
+  --line-m3: #9298ff;
+  --line-tram: #ffda1f;
 }
 
 * {
@@ -330,6 +340,143 @@ textarea:disabled {
 
 [data-theme="dark"] .theme-switch-thumb {
   transform: translateX(1.375rem);
+}
+
+.rail-badges {
+  display: inline-flex;
+  flex-shrink: 0;
+  gap: 0.25rem;
+}
+
+/* Set like a bus code: small bold mono in the line's colour on a faint wash of it. */
+.rail-badge {
+  display: inline-flex;
+  height: 1.0625rem;
+  flex-shrink: 0;
+  align-items: center;
+  border-radius: 999px;
+  background: var(--badge-fill, color-mix(in oklab, var(--line-color) 11%, transparent));
+  padding: 0 0.4rem;
+  color: var(--badge-ink, var(--line-color));
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+  transition:
+    background-color 160ms ease,
+    color 160ms ease,
+    opacity 160ms ease;
+}
+
+/* A hidden line: drained to the muted ink, still there to switch back on. */
+.rail-badge-off {
+  background: rgb(var(--ink-rgb) / 0.05);
+  color: rgb(var(--ink-rgb) / 0.32);
+}
+
+/* The toggles above the stop picker: the same badges at a size made for a thumb. */
+/* Spaced and ruled like the stop list's "Closest stops" header. */
+.rail-filter {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.375rem;
+  border-bottom: 1px solid rgb(var(--ink-rgb) / 0.1);
+  padding: 0.5rem 0.75rem;
+}
+
+.rail-filter-label {
+  margin-right: auto;
+  color: rgb(var(--ink-rgb) / 0.5);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.rail-filter .rail-badge {
+  height: 1.75rem;
+  padding: 0 0.6rem;
+  font-size: 0.75rem;
+}
+
+.rail-filter .rail-badge:hover {
+  background: var(--badge-fill, color-mix(in oklab, var(--line-color) 20%, transparent));
+}
+
+.rail-filter .rail-badge-off:hover {
+  background: rgb(var(--ink-rgb) / 0.09);
+}
+
+.rail-line-m1 {
+  --line-color: var(--line-m1);
+}
+
+.rail-line-m2 {
+  --line-color: var(--line-m2);
+}
+
+.rail-line-m3 {
+  --line-color: var(--line-m3);
+}
+
+.rail-line-t6,
+.rail-line-t7 {
+  --line-color: var(--line-tram);
+  --badge-fill: var(--line-tram);
+  --badge-ink: #302600;
+}
+
+/* A station on the map, its badges centred on the platforms; tapping one toggles its line. */
+.map-station {
+  position: absolute;
+  display: inline-flex;
+  gap: 2px;
+  transform: translate(-50%, -50%);
+}
+
+.map-station .rail-badge {
+  height: 1.25rem;
+  background: var(--badge-fill, color-mix(in oklab, var(--line-color) 14%, var(--paper)));
+  box-shadow: 0 1px 3px rgb(var(--shadow-rgb) / 0.28);
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.map-station .rail-badge-off {
+  background: var(--paper);
+  opacity: 0.7;
+}
+
+/* Collapses to nothing when hidden; its margins cancel out, so the page doesn't move. */
+.closest-metro {
+  display: grid;
+  margin: -0.75rem 0 0.75rem;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows 240ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 240ms ease;
+}
+
+.closest-metro[data-visible="true"] {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+.closest-metro-line {
+  display: flex;
+  min-height: 0;
+  min-width: 0;
+  align-items: center;
+  gap: 0.375rem;
+  overflow: hidden;
+  color: rgb(var(--ink-rgb) / 0.6);
+  font-size: 0.75rem;
+  line-height: 1.25rem;
+}
+
+.closest-metro-here {
+  color: var(--signal);
 }
 
 .stop-map-shell {
@@ -1300,6 +1447,11 @@ textarea:disabled {
   transform: scale(1.06);
 }
 
+/* Keep line colours readable against the selected bus's orange fill. */
+.arrival-bus-selected .rail-badge {
+  background: var(--badge-fill, var(--paper));
+}
+
 .arrival-bus-muted {
   background: rgb(var(--surface-rgb) / 0.34);
   color: rgb(var(--ink-rgb) / 0.46);
@@ -1682,7 +1834,8 @@ textarea:disabled {
   .small-action,
   .theme-switch,
   .theme-switch-icon,
-  .theme-switch-thumb {
+  .theme-switch-thumb,
+  .closest-metro {
     transition: none;
   }
 
