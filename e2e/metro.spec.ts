@@ -80,7 +80,7 @@ test("lines start off, only one can be selected, and the choice persists", async
   await expect(syntagma.locator(".rail-badge")).toHaveCount(0);
   await expect(page.getByRole("option", { name: /μακρια/ }).locator(".rail-badge")).toHaveCount(0);
 
-  const lines = page.getByRole("group", { name: "Metro and tram lines" });
+  const lines = page.getByRole("group", { name: "Line you're heading for" });
   await expect(lines.locator('[aria-pressed="true"]')).toHaveCount(0);
   await lines.getByRole("button", { name: "metro line 2" }).click();
   await page.getByPlaceholder("Search stop name").click();
@@ -93,7 +93,9 @@ test("lines start off, only one can be selected, and the choice persists", async
   await expect(lines.locator('[aria-pressed="true"]')).toHaveCount(1);
   await page.getByPlaceholder("Search stop name").click();
   await expect(syntagma.locator(".rail-badge")).toHaveText(["T6"]);
-  await expect(page.locator(".closest-metro")).toHaveAttribute("data-visible", "false");
+  // Trams get the closest-station line too, not just the metro.
+  await expect(page.locator(".closest-station")).toHaveAttribute("data-visible", "true");
+  await expect(page.locator(".closest-station-line")).toContainText("ζάππειο");
 
   await page.reload();
   await expect(lines.getByRole("button", { name: "tram line 6" })).toHaveAttribute("aria-pressed", "true");
@@ -102,9 +104,9 @@ test("lines start off, only one can be selected, and the choice persists", async
   await expect(lines.locator('[aria-pressed="true"]')).toHaveCount(0);
 });
 
-test("tapping a line on the map shows or hides it", async ({ context, page }) => {
+test("tapping a line on the map picks or clears it", async ({ context, page }) => {
   await openApp(context, page, north(-150));
-  const lines = page.getByRole("group", { name: "Metro and tram lines" });
+  const lines = page.getByRole("group", { name: "Line you're heading for" });
   const mapBadge = page.locator('.map-station [data-line="M2"]');
 
   await mapBadge.click();
@@ -124,7 +126,7 @@ test("tapping a line on the map shows or hides it", async ({ context, page }) =>
 test("both tram lines use yellow in light and dark themes", async ({ context, page }) => {
   await page.emulateMedia({ colorScheme: "light" });
   await openApp(context, page);
-  const lines = page.getByRole("group", { name: "Metro and tram lines" });
+  const lines = page.getByRole("group", { name: "Line you're heading for" });
   for (const line of [6, 7]) {
     const badge = lines.getByRole("button", { name: `tram line ${line}` });
     await badge.click();
@@ -137,13 +139,13 @@ test("both tram lines use yellow in light and dark themes", async ({ context, pa
   }
 });
 
-test("the closest metro shows a calm distance and a heads-up once on approach", async ({
+test("the closest station shows a calm distance and a heads-up once on approach", async ({
   context,
   page,
 }) => {
   await openNearby(context, page, north(-800));
   await page.getByRole("button", { name: "metro line 3", exact: true }).click();
-  const readout = page.locator(".closest-metro-line");
+  const readout = page.locator(".closest-station-line");
   await expect(readout).toContainText(/συνταγμα\s*· 800 meters/);
 
   // Riding north toward the station: the heads-up comes once, ~600 m out.
@@ -151,14 +153,14 @@ test("the closest metro shows a calm distance and a heads-up once on approach", 
     await context.setGeolocation(north(meters));
     await expect(readout).toContainText(`${-meters} meters`);
   }
-  await expect(page.getByText(/Metro coming up: συνταγμα, about 550 meters ahead\. Lines M2 and M3\./)).toBeVisible();
+  await expect(page.getByText(/Metro line 3 coming up: συνταγμα, about 550 meters ahead\./)).toBeVisible();
 
   await page.getByRole("button", { name: "Dismiss message" }).click();
   for (const meters of [-400, -200, -50]) {
     await context.setGeolocation(north(meters));
   }
   await expect(readout).toContainText("· here");
-  await expect(page.getByText(/Metro coming up/)).toHaveCount(0);
+  await expect(page.getByText(/coming up/)).toHaveCount(0);
 });
 
 for (const width of [390, 1280]) {
@@ -207,15 +209,15 @@ for (const width of [390, 1280]) {
     await context.setGeolocation(north(-1500));
     await page.setViewportSize({ width, height: 844 });
     await page.goto("/");
-    const lines = page.getByRole("group", { name: "Metro and tram lines" });
+    const lines = page.getByRole("group", { name: "Line you're heading for" });
     await lines.getByRole("button", { name: "metro line 3" }).click();
     await page.getByPlaceholder("Search stop name").click();
     await page.getByRole("option", { name: /αρχη/ }).click();
     const badges = page.locator(".arrival-tag > .rail-badge");
-    await expect(badges).toHaveText(["M3: 4 stops", "M3: 4 stops"]);
-    await expect(page.getByRole("button", { name: /notifications for line 060.*M3: 4 stops/ })).toHaveCount(1);
-    await expect(page.getByRole("button", { name: /notifications for line 060, 5 minutes away, M3: 4 stops/ })).toBeVisible();
-    await expect(page.getByRole("button", { name: /notifications for line 061.*M3: 4 stops/ })).toHaveCount(1);
+    await expect(badges).toHaveText(["4 stops to M3", "4 stops to M3"]);
+    await expect(page.getByRole("button", { name: /notifications for line 060.*4 stops to M3/ })).toHaveCount(1);
+    await expect(page.getByRole("button", { name: /notifications for line 060, 5 minutes away, 4 stops to M3/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: /notifications for line 061.*4 stops to M3/ })).toHaveCount(1);
     await page.getByRole("button", { name: /Enable notifications for line 060, 5 minutes away/ }).click();
     const selectedBadge = page.locator(".arrival-bus-selected + .rail-badge").first();
     for (const theme of ["light", "dark"] as const) {
@@ -239,7 +241,7 @@ for (const width of [390, 1280]) {
     await page.locator(".selected-stop-row").click();
     await lines.getByRole("button", { name: "tram line 6" }).click();
     await page.locator(".selected-stop-row").click();
-    await expect(badges).toHaveText(["T6: 3 stops", "T6: 3 stops"]);
+    await expect(badges).toHaveText(["3 stops to T6", "3 stops to T6"]);
     await expect(selectedBadge).toBeVisible();
     for (const theme of ["light", "dark"] as const) {
       if (theme === "dark") await page.getByRole("switch", { name: "Use dark mode" }).click();

@@ -1,16 +1,17 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { RailBadges } from "@/components/rail-badges";
-import { useHiddenLines } from "@/hooks/use-hidden-lines";
+import { LineBadge } from "@/components/rail-badges";
+import { useSelectedLine } from "@/hooks/use-selected-line";
 import { useStopCatalog } from "@/hooks/use-stop-catalog";
 import { formatTransitName } from "@/lib/display";
 import { formatDistance } from "@/lib/distance";
 import {
   INITIAL_APPROACH,
   approach,
-  isMetroLine,
+  describeLine,
   stickyClosest,
+  type RailLine,
   type RailStation,
   type StationDistance,
 } from "@/lib/metro";
@@ -25,18 +26,18 @@ function calmDistance(meters: number): string {
   return formatDistance(meters < 1_000 ? Math.round(meters / 10) * 10 : meters);
 }
 
-function headsUpMessage({ station, meters }: StationDistance): string {
-  const lines = station.lines.filter(isMetroLine);
-  return `Metro coming up: ${formatTransitName(station.name)}, about ${formatDistance(
-    Math.round(meters / 50) * 50,
-  )} ahead. ${lines.length === 1 ? "Line" : "Lines"} ${lines.join(" and ")}.`;
+function headsUpMessage(line: RailLine, { station, meters }: StationDistance): string {
+  const description = describeLine(line);
+  return `${description[0].toUpperCase()}${description.slice(1)} coming up: ${formatTransitName(
+    station.name,
+  )}, about ${formatDistance(Math.round(meters / 50) * 50)} ahead.`;
 }
 
 /**
- * The nearest metro station while you have a good fix, and a one-time heads-up
- * as you approach one, early enough to plan getting off.
+ * The nearest station on the rider's line while you have a good fix, and a
+ * one-time heads-up as you approach one, early enough to plan getting off.
  */
-export function ClosestMetro({
+export function ClosestStation({
   location,
   onHeadsUp,
 }: {
@@ -44,17 +45,13 @@ export function ClosestMetro({
   onHeadsUp: (message: string) => void;
 }) {
   const { stations: allStations } = useStopCatalog();
-  const hiddenLines = useHiddenLines();
-  // Only stations on a metro line the rider still shows; the same objects, so
-  // the sticky choice keeps recognising its station.
+  const line = useSelectedLine();
+  // The same objects, so the sticky choice keeps recognising its station.
   const stations = useMemo(
-    () =>
-      allStations.filter((station) =>
-        station.lines.some((line) => isMetroLine(line) && !hiddenLines.has(line)),
-      ),
-    [allStations, hiddenLines],
+    () => (line ? allStations.filter((station) => station.lines.includes(line)) : []),
+    [allStations, line],
   );
-  const [closest, setClosest] = useState<StationDistance | null>(null);
+  const [shown, setShown] = useState<{ line: RailLine; closest: StationDistance } | null>(null);
   const [visible, setVisible] = useState(false);
   const previousRef = useRef<RailStation | null>(null);
   const approachRef = useRef(INITIAL_APPROACH);
@@ -70,36 +67,33 @@ export function ClosestMetro({
       : null;
     previousRef.current = next?.station ?? null;
 
-    if (next && location) {
+    if (next && location && line) {
       const result = approach(approachRef.current, location, next);
       approachRef.current = result.state;
-      if (result.headsUp) onHeadsUpRef.current(headsUpMessage(result.headsUp));
-      setClosest(next);
+      if (result.headsUp) onHeadsUpRef.current(headsUpMessage(line, result.headsUp));
+      setShown({ line, closest: next });
     }
     // The last station stays rendered while the line collapses away.
     setVisible(next !== null);
-  }, [location, stations]);
+  }, [line, location, stations]);
 
-  const isHere = closest !== null && closest.meters <= HERE_METERS;
+  const isHere = shown !== null && shown.closest.meters <= HERE_METERS;
 
   return (
     <div
       aria-hidden={!visible}
-      className="closest-metro"
+      className="closest-station"
       data-visible={visible}
     >
-      {closest && (
-        <p className={`closest-metro-line ${isHere ? "closest-metro-here" : ""}`}>
-          <span className="sr-only">Closest metro: </span>
-          <RailBadges
-            label={(description) => `${description}, `}
-            lines={closest.station.lines.filter(isMetroLine)}
-          />
+      {shown && (
+        <p className={`closest-station-line ${isHere ? "closest-station-here" : ""}`}>
+          <span className="sr-only">Closest station: </span>
+          <LineBadge label={`${describeLine(shown.line)}, `} line={shown.line} />
           <span className="truncate font-semibold">
-            {formatTransitName(closest.station.name)}
+            {formatTransitName(shown.closest.station.name)}
           </span>
           <span className="shrink-0 tabular-nums">
-            · {isHere ? "here" : calmDistance(closest.meters)}
+            · {isHere ? "here" : calmDistance(shown.closest.meters)}
           </span>
         </p>
       )}

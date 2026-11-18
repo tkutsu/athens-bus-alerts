@@ -34,19 +34,22 @@ export function isMetroLine(line: RailLine): boolean {
   return line.startsWith("M");
 }
 
-/** Every line with a station within `radius` of the point, in chip order. */
-export function linesNear(
+/** The nearest station on this line within `radius` of the point. */
+export function stationAt(
   point: Coordinates,
+  line: RailLine,
   stations: readonly RailStation[],
   radius = CHIP_RADIUS_METERS,
-): RailLine[] {
-  const lines = new Set<RailLine>();
+): RailStation | null {
+  let nearest: StationDistance | null = null;
   for (const station of stations) {
-    if (haversineMeters(point, station) <= radius) {
-      for (const line of station.lines) lines.add(line);
+    if (!station.lines.includes(line)) continue;
+    const meters = haversineMeters(point, station);
+    if (meters <= radius && (!nearest || meters < nearest.meters)) {
+      nearest = { station, meters };
     }
   }
-  return RAIL_LINES.filter((line) => lines.has(line));
+  return nearest?.station ?? null;
 }
 
 /** Counts bus stops to the first connection on this line, including zero here. */
@@ -58,53 +61,24 @@ export function stopsToLine(
 ): number | null {
   const start = route.stops.findIndex((stop) => stop.code === stopCode);
   if (start < 0) return null;
-  const onLine = stations.filter((station) => station.lines.includes(line));
   for (let index = start; index < route.stops.length; index++) {
-    if (onLine.some((station) =>
-      haversineMeters(route.stops[index], station) <= CHIP_RADIUS_METERS,
-    )) return index - start;
+    if (stationAt(route.stops[index], line, stations)) return index - start;
   }
   return null;
 }
 
-/** The station a stop is "by": the nearest metro in range, else the nearest tram. */
-export function stationAt(
-  point: Coordinates,
-  stations: readonly RailStation[],
-  radius = CHIP_RADIUS_METERS,
-): RailStation | null {
-  const inRange = stations
-    .map((station) => ({ station, meters: haversineMeters(point, station) }))
-    .filter(({ meters }) => meters <= radius)
-    .sort((a, b) => a.meters - b.meters);
-  return (
-    inRange.find(({ station }) => station.lines.some(isMetroLine)) ??
-    inRange[0]
-  )?.station ?? null;
+/** Words for screen readers, such as "metro line 2" or "tram line 6". */
+export function describeLine(line: RailLine): string {
+  return `${isMetroLine(line) ? "metro" : "tram"} line ${line.slice(1)}`;
 }
 
-/** Words for screen readers, such as "metro lines 2 and 3 and tram line 6". */
-export function describeLines(lines: readonly RailLine[]): string {
-  const mode = (name: string, numbers: string[]) =>
-    numbers.length === 0
-      ? []
-      : [
-          `${name} ${numbers.length === 1 ? "line" : "lines"} ${numbers.join(" and ")}`,
-        ];
-  return [
-    ...mode("metro", lines.filter(isMetroLine).map((line) => line.slice(1))),
-    ...mode("tram", lines.filter((line) => !isMetroLine(line)).map((line) => line.slice(1))),
-  ].join(" and ");
-}
-
-/** The nearest station served by the metro, ignoring tram-only stops. */
-export function closestMetro(
+/** The nearest of these stations, however far. */
+export function closestStation(
   point: Coordinates,
   stations: readonly RailStation[],
 ): StationDistance | null {
   let closest: StationDistance | null = null;
   for (const station of stations) {
-    if (!station.lines.some(isMetroLine)) continue;
     const meters = haversineMeters(point, station);
     if (!closest || meters < closest.meters) closest = { station, meters };
   }
@@ -112,16 +86,22 @@ export function closestMetro(
 }
 
 /**
- * The closest metro station, keeping the previous one until another is clearly
- * nearer, so riding between two stations reads as one steady target.
+ * The closest of these stations, keeping the previous one until another is
+ * clearly nearer, so riding between two stations reads as one steady target.
  */
 export function stickyClosest(
   previous: RailStation | null,
   point: Coordinates,
   stations: readonly RailStation[],
 ): StationDistance | null {
-  const closest = closestMetro(point, stations);
-  if (!closest || !previous || previous === closest.station) return closest;
+  const closest = closestStation(point, stations);
+  if (
+    !closest ||
+    !previous ||
+    previous === closest.station ||
+    // A station off the chosen line no longer counts.
+    !stations.includes(previous)
+  ) return closest;
 
   const previousMeters = haversineMeters(point, previous);
   return previousMeters - closest.meters < SWITCH_MARGIN_METERS
@@ -139,9 +119,9 @@ export interface ApproachState {
 export const INITIAL_APPROACH: ApproachState = { target: null, announced: [] };
 
 /**
- * Decides whether a reading is the moment to say a metro station is ahead:
- * within 600 m and getting closer, once per station until you've left it 1 km
- * behind. Standing near a station never counts as approaching it.
+ * Decides whether a reading is the moment to say a station is ahead: within
+ * 600 m and getting closer, once per station until you've left it 1 km behind.
+ * Standing near a station never counts as approaching it.
  */
 export function approach(
   state: ApproachState,

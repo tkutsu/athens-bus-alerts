@@ -321,7 +321,7 @@ function ArrivalRow({
       : `${estimatedEta} minutes away`;
   const lineName = formatTransitName(arrival.lineId);
   const connectionLabel = railConnection
-    ? `${railConnection.line}: ${railConnection.stops} ${railConnection.stops === 1 ? "stop" : "stops"}`
+    ? `${railConnection.stops} ${railConnection.stops === 1 ? "stop" : "stops"} to ${railConnection.line}`
     : null;
   const uncertain =
     isUnavailable || arrival.confidence === "stale" ||
