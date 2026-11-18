@@ -27,6 +27,7 @@ import { Toast } from "@/components/toast";
 import { useDeviceLocation } from "@/hooks/use-device-location";
 import { useLineAlerts } from "@/hooks/use-line-alerts";
 import { useRailConnections } from "@/hooks/use-rail-connections";
+import { selectLine } from "@/hooks/use-selected-line";
 import { loadRouteDetails } from "@/lib/route-details";
 import { StopRouteLoader } from "@/lib/stop-routes";
 import { formatTransitName } from "@/lib/display";
@@ -614,6 +615,8 @@ export function TickerApp() {
     );
     const loaded = await loadStop(favorite.stop, requested);
     if (!loaded) return;
+    // A favorite without a line leaves the current choice alone.
+    if (favorite.railLine) selectLine(favorite.railLine);
     if (loaded.validLineIds.length !== favorite.routes.length) {
       setStatus("Some saved lines no longer serve this stop, so we removed them.");
     }

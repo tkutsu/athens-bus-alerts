@@ -1,3 +1,5 @@
+import type { RailLine } from "@/lib/metro";
+
 export interface Coordinates {
   latitude: number;
   longitude: number;
@@ -68,6 +70,8 @@ export interface Favorite {
   name: string;
   stop: Pick<StopSummary, "code" | "name">;
   routes: Array<{ lineId: string; routeCode: string | null }>;
+  /** The metro or tram line picked when it was saved, restored on enable. */
+  railLine?: RailLine;
   createdAt: string;
   updatedAt: string;
   lastEnabledAt: string | null;
