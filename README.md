@@ -28,8 +28,8 @@ pnpm sync:stops
 The same file holds the metro and tram stations from STASY's GTFS. Pick the
 line you're heading for from the row above the map, or tap its badge on a
 station on the map. Bus stops within 300 m of that line then show its badge,
-each bus says how many stops it takes to reach it, and the line under the
-header shows its closest station while you have a GPS fix, with a heads-up
+each bus says how many stops it takes to reach it, and the row shows the
+line's closest station while you have a GPS fix, with a heads-up
 about 600 m before you get there. STASY ships its feed as a RAR, so the sync
 needs `bsdtar` from libarchive.
 

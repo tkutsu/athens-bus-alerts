@@ -365,8 +365,9 @@ textarea:disabled {
 }
 
 /* The line picker under the header: the same badges at a size made for a thumb.
-   Pulled up toward the header, with the closest station tucked in below it. */
+   Pulled up toward the header. */
 .rail-filter {
+  --fold: 300ms cubic-bezier(0.22, 1, 0.36, 1);
   display: flex;
   flex-shrink: 0;
   align-items: center;
@@ -381,8 +382,27 @@ textarea:disabled {
   font-weight: 600;
 }
 
+/* Your line's closest station, where the label was. */
+.rail-filter-station {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.375rem;
+  margin-right: auto;
+  color: rgb(var(--ink-rgb) / 0.6);
+  font-size: 0.75rem;
+  line-height: 1.25rem;
+  animation: rail-station-enter 240ms ease both;
+}
+
+.rail-filter-here {
+  color: var(--signal);
+}
+
 .rail-filter .rail-badge {
+  max-width: 3rem;
   height: 1.75rem;
+  overflow: hidden;
   padding: 0 0.6rem;
   font-size: 0.75rem;
 }
@@ -391,27 +411,38 @@ textarea:disabled {
   background: rgb(var(--ink-rgb) / 0.09);
 }
 
-/* Your line, folded into the row. It settles in where the choices were. */
-.rail-filter-choice {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.375rem;
-  animation: rail-choice-enter 220ms cubic-bezier(0.2, 0.9, 0.3, 1.25);
-}
-
 .rail-filter-clear {
   position: relative;
   display: inline-flex;
   width: 1.75rem;
+  max-width: 1.75rem;
   height: 1.75rem;
+  flex-shrink: 0;
   align-items: center;
   justify-content: center;
   border-radius: 999px;
   background: rgb(var(--ink-rgb) / 0.06);
   color: rgb(var(--ink-rgb) / 0.6);
+}
+
+/* Picking a line folds the others to nothing, so your badge slides over on
+   its own while it takes on the line's colour. Clearing plays it backwards. */
+.rail-filter .rail-badge,
+.rail-filter-clear {
   transition:
-    background-color 160ms ease,
-    color 160ms ease;
+    max-width var(--fold),
+    padding var(--fold),
+    margin var(--fold),
+    opacity 200ms ease,
+    background-color 240ms ease,
+    color 240ms ease;
+}
+
+.rail-filter [data-folded="true"] {
+  max-width: 0;
+  margin-left: -0.375rem;
+  padding-inline: 0;
+  opacity: 0;
 }
 
 /* A thumb-sized target around the small round button. */
@@ -429,16 +460,16 @@ textarea:disabled {
 .rail-filter-clear svg {
   width: 0.625rem;
   height: 0.625rem;
+  flex-shrink: 0;
   fill: none;
   stroke: currentColor;
   stroke-linecap: round;
   stroke-width: 1.75;
 }
 
-@keyframes rail-choice-enter {
+@keyframes rail-station-enter {
   from {
     opacity: 0;
-    transform: scale(0.85);
   }
 }
 
@@ -484,37 +515,6 @@ textarea:disabled {
 }
 
 /* Collapses to nothing when hidden; its margins cancel out, so the page doesn't move. */
-.closest-station {
-  display: grid;
-  margin: -0.75rem 0 0.75rem;
-  grid-template-rows: 0fr;
-  opacity: 0;
-  transition:
-    grid-template-rows 240ms cubic-bezier(0.22, 1, 0.36, 1),
-    opacity 240ms ease;
-}
-
-.closest-station[data-visible="true"] {
-  grid-template-rows: 1fr;
-  opacity: 1;
-}
-
-.closest-station-line {
-  display: flex;
-  min-height: 0;
-  min-width: 0;
-  align-items: center;
-  gap: 0.375rem;
-  overflow: hidden;
-  color: rgb(var(--ink-rgb) / 0.6);
-  font-size: 0.75rem;
-  line-height: 1.25rem;
-}
-
-.closest-station-here {
-  color: var(--signal);
-}
-
 .stop-map-shell {
   background: rgb(var(--surface-rgb) / 0.4);
 }
@@ -1363,6 +1363,22 @@ textarea:disabled {
   color: rgb(var(--ink-rgb) / 0.6);
   font-size: 0.75rem;
   white-space: nowrap;
+  /* It often arrives after its bus: a line picked, route details loaded, or
+     the first bus of a line moving on. So it eases in rather than popping. */
+  animation: arrival-connection-enter 200ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* A bus sliding in already brings its tag along. */
+.arrival-timeline-section-entering .arrival-connection,
+.arrival-timeline-row-arriving .arrival-connection {
+  animation: none;
+}
+
+@keyframes arrival-connection-enter {
+  from {
+    opacity: 0;
+    transform: translateX(-0.25rem);
+  }
 }
 
 .arrival-bus {
@@ -1879,12 +1895,13 @@ textarea:disabled {
   .theme-switch,
   .theme-switch-icon,
   .theme-switch-thumb,
-  .closest-station,
+  .rail-filter .rail-badge,
   .rail-filter-clear {
     transition: none;
   }
 
-  .rail-filter-choice {
+  .rail-filter-station,
+  .arrival-connection {
     animation: none;
   }
 

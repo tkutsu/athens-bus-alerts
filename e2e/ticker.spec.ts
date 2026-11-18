@@ -1294,7 +1294,7 @@ test("saves a multi-line favorite to v5 storage", async ({ page }) => {
     .first()
     .click();
   const railLines = page.getByRole("group", { name: "Line you're heading for" });
-  const metroThree = railLines.getByRole("button", { name: "metro line 3" });
+  const metroThree = railLines.getByRole("button", { name: "metro line 3", exact: true });
   await metroThree.click();
 
   await page
@@ -1333,14 +1333,14 @@ test("saves a multi-line favorite to v5 storage", async ({ page }) => {
   // Enabling the favorite brings its line back after the rider clears it.
   const clearMetroThree = railLines.getByRole("button", { name: "Clear metro line 3" });
   await clearMetroThree.click();
-  await expect(metroThree).toBeVisible();
+  await expect(metroThree).toHaveAttribute("aria-pressed", "false");
   await page
     .locator("footer")
     .getByRole("button", { name: "Favorites" })
     .click();
   await expect(dialog.getByText("heading for metro line 3")).toBeAttached();
   await dialog.getByRole("button", { name: "Enable", exact: true }).click();
-  await expect(clearMetroThree).toBeVisible();
+  await expect(metroThree).toHaveAttribute("aria-pressed", "true");
 });
 
 test("opens favorite actions outside the scrolling list", async ({ page }) => {

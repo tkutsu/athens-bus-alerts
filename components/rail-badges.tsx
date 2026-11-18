@@ -1,8 +1,11 @@
 "use client";
 
-import { useEffect, useRef } from "react";
-import { selectLine, useSelectedLine } from "@/hooks/use-selected-line";
+import { useClosestStation } from "@/hooks/use-closest-station";
+import { selectLine, toggleLine, useSelectedLine } from "@/hooks/use-selected-line";
+import { formatTransitName } from "@/lib/display";
+import { formatDistance } from "@/lib/distance";
 import { RAIL_LINES, describeLine, type RailLine } from "@/lib/metro";
+import type { UserLocation } from "@/lib/types";
 
 /** One line as station signs letter it, "M2" or "T6", set like a bus code. */
 export function railBadgeClass(line: RailLine, off = false): string {
@@ -27,65 +30,88 @@ export function LineBadge({
   );
 }
 
+/** Within this, you're at the station rather than heading for it. */
+const HERE_METERS = 100;
+
+/** Rounds to 10 m so a few metres of GPS noise don't make the number flicker. */
+function calmDistance(meters: number): string {
+  return formatDistance(meters < 1_000 ? Math.round(meters / 10) * 10 : meters);
+}
+
 /**
- * Picks the line you're heading for. Once picked, the row folds to that line
- * and a clear button, which brings the choices back.
+ * Picks the line you're heading for. Once picked, the other lines fold away,
+ * so your badge slides over beside a clear button that unfolds them again,
+ * and the left side shows that line's closest station.
  */
-export function RailLineFilter() {
+export function RailLineFilter({
+  location,
+  onHeadsUp,
+}: {
+  location: UserLocation | null;
+  onHeadsUp: (message: string) => void;
+}) {
   const selected = useSelectedLine();
-  const row = useRef<HTMLDivElement>(null);
-  // The button you pressed leaves with the row's old shape, so focus moves to
-  // the first one in the new shape. Map taps and favorites leave focus alone.
-  const refocus = useRef(false);
-
-  useEffect(() => {
-    if (!refocus.current) return;
-    refocus.current = false;
-    row.current?.querySelector("button")?.focus();
-  }, [selected]);
-
-  function choose(line: RailLine | null) {
-    refocus.current = true;
-    selectLine(line);
-  }
+  const closest = useClosestStation(location, onHeadsUp);
+  const isHere = closest !== null && closest.meters <= HERE_METERS;
 
   return (
-    <div
-      aria-label="Line you're heading for"
-      className="rail-filter"
-      ref={row}
-      role="group"
-    >
-      <span aria-hidden="true" className="rail-filter-label">
-        Heading for
-      </span>
-      {selected ? (
-        <span className="rail-filter-choice" key={selected}>
-          <LineBadge line={selected} />
-          <button
-            aria-label={`Clear ${describeLine(selected)}`}
-            className="rail-filter-clear"
-            onClick={() => choose(null)}
-            type="button"
-          >
-            <svg aria-hidden="true" viewBox="0 0 10 10">
-              <path d="M2 2l6 6M8 2l-6 6" />
-            </svg>
-          </button>
-        </span>
+    <div aria-label="Line you're heading for" className="rail-filter" role="group">
+      {closest ? (
+        <p
+          className={`rail-filter-station ${isHere ? "rail-filter-here" : ""}`}
+          key={closest.station.name}
+        >
+          <span className="sr-only">Closest station: </span>
+          <span className="truncate font-semibold">
+            {formatTransitName(closest.station.name)}
+          </span>
+          <span className="shrink-0 tabular-nums">
+            · {isHere ? "here" : calmDistance(closest.meters)}
+          </span>
+        </p>
       ) : (
-        RAIL_LINES.map((line) => (
+        <span aria-hidden="true" className="rail-filter-label">
+          Heading for
+        </span>
+      )}
+      {/* All stay mounted, so the same badge morphs between the two states. */}
+      {RAIL_LINES.map((line) => {
+        const folded = selected !== null && line !== selected;
+        return (
           <button
+            aria-hidden={folded || undefined}
             aria-label={describeLine(line)}
-            className={railBadgeClass(line, true)}
+            aria-pressed={line === selected}
+            className={railBadgeClass(line, line !== selected)}
+            data-folded={folded}
+            inert={folded}
             key={line}
-            onClick={() => choose(line)}
+            onClick={() => toggleLine(line)}
             type="button"
           >
             {line}
           </button>
-        ))
-      )}
+        );
+      })}
+      <button
+        aria-hidden={!selected || undefined}
+        aria-label={selected ? `Clear ${describeLine(selected)}` : "Clear line"}
+        className="rail-filter-clear"
+        data-folded={!selected}
+        inert={!selected}
+        onClick={(event) => {
+          // This button folds away; your badge stays put, so focus goes there.
+          event.currentTarget.parentElement
+            ?.querySelector<HTMLElement>('[aria-pressed="true"]')
+            ?.focus();
+          selectLine(null);
+        }}
+        type="button"
+      >
+        <svg aria-hidden="true" viewBox="0 0 10 10">
+          <path d="M2 2l6 6M8 2l-6 6" />
+        </svg>
+      </button>
     </div>
   );
 }
