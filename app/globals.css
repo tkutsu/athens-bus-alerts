@@ -24,7 +24,7 @@
   --toast-error: #f3e3dc;
   --toast-error-ink: #7f1d1d;
   --toast-neutral: #e5e1d7;
-  /* Line colours as on station signs, deepened where needed to read as text (4.5:1). */
+  /* Line colours as on station signs, kept in both themes since badges fill with them. */
   --line-m1: #007a33;
   --line-m2: #c8241a;
   --line-m3: #10069f;
@@ -54,11 +54,6 @@
   --toast-error: #3b211d;
   --toast-error-ink: #ffc5b8;
   --toast-neutral: #27312b;
-  /* The same hues lifted to read on the dark paper. */
-  --line-m1: #3ec274;
-  --line-m2: #ff6f61;
-  --line-m3: #9298ff;
-  --line-tram: #ffda1f;
 }
 
 * {
@@ -342,16 +337,16 @@ textarea:disabled {
   transform: translateX(1.375rem);
 }
 
-/* Set like a bus code: small bold mono in the line's colour on a faint wash of it. */
+/* Set like a station sign: bold mono, white on the line's own colour. */
 .rail-badge {
   display: inline-flex;
   height: 1.125rem;
   flex-shrink: 0;
   align-items: center;
   border-radius: 999px;
-  background: var(--badge-fill, color-mix(in oklab, var(--line-color) 11%, transparent));
+  background: var(--line-color);
   padding: 0 0.4rem;
-  color: var(--badge-ink, var(--line-color));
+  color: var(--badge-ink, #fff);
   font-family: var(--font-mono);
   font-size: 0.75rem;
   font-weight: 800;
@@ -392,10 +387,6 @@ textarea:disabled {
   font-size: 0.75rem;
 }
 
-.rail-filter .rail-badge:hover {
-  background: var(--badge-fill, color-mix(in oklab, var(--line-color) 20%, transparent));
-}
-
 .rail-filter .rail-badge-off:hover {
   background: rgb(var(--ink-rgb) / 0.09);
 }
@@ -415,7 +406,6 @@ textarea:disabled {
 .rail-line-t6,
 .rail-line-t7 {
   --line-color: var(--line-tram);
-  --badge-fill: var(--line-tram);
   --badge-ink: #302600;
 }
 
@@ -427,10 +417,12 @@ textarea:disabled {
   transform: translate(-50%, -50%);
 }
 
+/* A paper ring lifts each sign off the busy tiles, light or dark. */
 .map-station .rail-badge {
   height: 1.25rem;
-  background: var(--badge-fill, color-mix(in oklab, var(--line-color) 14%, var(--paper)));
-  box-shadow: 0 1px 3px rgb(var(--shadow-rgb) / 0.28);
+  box-shadow:
+    0 0 0 1.5px var(--paper),
+    0 1px 3px 1.5px rgb(var(--shadow-rgb) / 0.28);
   cursor: pointer;
   pointer-events: auto;
 }
@@ -1309,9 +1301,17 @@ textarea:disabled {
   align-items: center;
 }
 
-.arrival-tag > .rail-badge {
-  /* Leave room for the selected bus button's 6% enlargement. */
-  margin-left: 1rem;
+/* "[M3] 4 stops" after a bus: the line's sign, then the count in quiet text.
+   The gap clears the selected bus button's 6% enlargement. */
+.arrival-connection {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.3rem;
+  margin-left: 0.625rem;
+  color: rgb(var(--ink-rgb) / 0.6);
+  font-size: 0.75rem;
+  white-space: nowrap;
 }
 
 .arrival-bus {
