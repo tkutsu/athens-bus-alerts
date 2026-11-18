@@ -38,6 +38,7 @@ import { findClosestStops, searchStopNames } from "@/lib/stop-catalog";
 import { useArrivalPolling } from "@/hooks/use-arrival-polling";
 import { useStopCatalog } from "@/hooks/use-stop-catalog";
 import { StopCombobox } from "@/components/stop-combobox";
+import { StopName, StopStationNote } from "@/components/stop-name";
 import { StopMap } from "@/components/stop-map";
 import { ArrivalWarning, ServiceWarning } from "@/components/service-warning";
 import {
@@ -726,16 +727,24 @@ export function TickerApp() {
               ref={stopMarkerRef}
             />
             <span className="min-w-0 flex-1 text-left">
-              <span className="block truncate font-bold">
-                {formatTransitName(selectedStop.name)}
+              <StopName
+                className="font-bold"
+                code={selectedStop.code}
+                name={selectedStop.name}
+              />
+              <span className="mt-0.5 flex min-w-0 gap-1 text-xs text-ink/50 empty:hidden">
+                {(selectedStop.street || coordinates) && (
+                  <span className="truncate">
+                    {selectedStop.street
+                      ? formatTransitName(selectedStop.street)
+                      : `${formatDistance(selectedStop.distanceMeters)} away`}
+                  </span>
+                )}
+                <StopStationNote
+                  code={selectedStop.code}
+                  separated={Boolean(selectedStop.street || coordinates)}
+                />
               </span>
-              {(selectedStop.street || coordinates) && (
-                <span className="mt-0.5 block truncate text-xs text-ink/50">
-                  {selectedStop.street
-                    ? formatTransitName(selectedStop.street)
-                    : `${formatDistance(selectedStop.distanceMeters)} away`}
-                </span>
-              )}
             </span>
             <span className="small-action shrink-0">
               {pickerOpen ? "Track" : "Change"}

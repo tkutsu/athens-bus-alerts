@@ -9,6 +9,7 @@ import {
   type SetStateAction,
 } from "react";
 import { Icon } from "@/components/icon";
+import { StopName } from "@/components/stop-name";
 import { formatTransitName } from "@/lib/display";
 import type { Favorite, LineSubscription, StopSummary } from "@/lib/types";
 
@@ -265,9 +266,16 @@ export function FavoritesDialog({
                   Save
                 </button>
               </div>
-              <p className="mt-2 text-xs text-ink/55">
-                {formatTransitName(selectedStop?.name ?? "")} ·{" "}
-                {selectedLineIds.map(formatTransitName).join(" · ")}
+              <p className="mt-2 flex min-w-0 items-center gap-1 text-xs text-ink/55">
+                {selectedStop && (
+                  <StopName
+                    code={selectedStop.code}
+                    name={selectedStop.name}
+                  />
+                )}
+                <span className="truncate">
+                  · {selectedLineIds.map(formatTransitName).join(" · ")}
+                </span>
               </p>
             </form>
           )}
@@ -288,11 +296,17 @@ export function FavoritesDialog({
                       type="button"
                     >
                       <span className="block truncate font-semibold">{favorite.name}</span>
-                      <span className="block truncate text-xs text-ink/55">
-                        {formatTransitName(favorite.stop.name)} ·{" "}
-                        {favorite.routes
-                          .map(({ lineId }) => formatTransitName(lineId))
-                          .join(" · ")}
+                      <span className="flex min-w-0 items-center gap-1 text-xs text-ink/55">
+                        <StopName
+                          code={favorite.stop.code}
+                          name={favorite.stop.name}
+                        />
+                        <span className="truncate">
+                          ·{" "}
+                          {favorite.routes
+                            .map(({ lineId }) => formatTransitName(lineId))
+                            .join(" · ")}
+                        </span>
                       </span>
                     </button>
                     <button
