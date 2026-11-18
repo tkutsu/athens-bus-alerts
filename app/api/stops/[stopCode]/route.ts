@@ -28,7 +28,7 @@ export async function GET(request: Request, context: RouteContext) {
         },
       );
     } catch (error) {
-      return oasaErrorResponse(error);
+      return oasaErrorResponse(error, request);
     }
   });
 }

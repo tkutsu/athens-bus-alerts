@@ -16,7 +16,7 @@ const pendingRequests = new Map<string, Promise<Response>>();
 // Plain Node (next dev/start) has no edge cache and only coalesces requests
 // that overlap within this instance.
 /** Fetches and caches one snapshot without sharing a consumable response body. */
-async function loadSnapshot(stopCode: string, cacheKey: Request, cache: Cache | undefined) {
+async function loadSnapshot(request: Request, stopCode: string, cacheKey: Request, cache: Cache | undefined) {
   try {
     const upstreamArrivals = await getArrivalsForStop(stopCode);
     const response = NextResponse.json(
@@ -34,7 +34,7 @@ async function loadSnapshot(stopCode: string, cacheKey: Request, cache: Cache | 
     await cache?.put(cacheKey, response.clone());
     return response;
   } catch (error) {
-    return oasaErrorResponse(error);
+    return oasaErrorResponse(error, request);
   }
 }
 
@@ -52,7 +52,7 @@ export async function GET(request: Request, context: RouteContext) {
 
   let pending = pendingRequests.get(cacheKey.url);
   if (!pending) {
-    pending = loadSnapshot(stopCode, cacheKey, cache);
+    pending = loadSnapshot(request, stopCode, cacheKey, cache);
     if (pendingRequests.size < MAX_PENDING_REQUESTS) pendingRequests.set(cacheKey.url, pending);
   }
   try {
