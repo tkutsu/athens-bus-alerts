@@ -2,7 +2,7 @@ export function Icon({
   name,
   className = "size-5",
 }: {
-  name: "bus" | "moon" | "star" | "sun";
+  name: "bus" | "install" | "moon" | "star" | "sun";
   className?: string;
 }) {
   const paths = {
@@ -15,6 +15,13 @@ export function Icon({
         <circle cx="7" cy="18" r="2" />
         <path d="M9 18h5" />
         <circle cx="16" cy="18" r="2" />
+      </>
+    ),
+    install: (
+      <>
+        <path d="M12 3v12" />
+        <path d="m7 10 5 5 5-5" />
+        <path d="M5 20h14" />
       </>
     ),
     star: (
