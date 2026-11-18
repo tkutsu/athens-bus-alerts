@@ -3,6 +3,8 @@ import type { Arrival } from "@/lib/types";
 
 export const ARRIVAL_CACHE_KEY = "athens-bus-ticker:arrivals:v2";
 const MAX_CACHED_STOPS = 5;
+// Older arrivals say nothing about where buses are now.
+const MAX_SNAPSHOT_AGE_MS = 60 * 60_000;
 
 export interface ArrivalsPayload {
   arrivals: Arrival[];
@@ -44,7 +46,9 @@ function readCache(): CachedArrivalSchedule[] {
     const raw = window.localStorage.getItem(ARRIVAL_CACHE_KEY);
     if (!raw) return [];
     const cache = cacheSchema.safeParse(JSON.parse(raw));
-    return cache.success ? cache.data.entries : [];
+    if (!cache.success) return [];
+    const oldest = Date.now() - MAX_SNAPSHOT_AGE_MS;
+    return cache.data.entries.filter((entry) => Date.parse(entry.data.observedAt) >= oldest);
   } catch {
     return [];
   }
