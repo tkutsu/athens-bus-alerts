@@ -1,5 +1,6 @@
 "use client";
 
+import { FlapText } from "@/components/flap-text";
 import { useClosestStation } from "@/hooks/use-closest-station";
 import { selectLine, toggleLine, useSelectedLine } from "@/hooks/use-selected-line";
 import { formatTransitName } from "@/lib/display";
@@ -53,27 +54,25 @@ export function RailLineFilter({
   const selected = useSelectedLine();
   const closest = useClosestStation(location, onHeadsUp);
   const isHere = closest !== null && closest.meters <= HERE_METERS;
+  const station = closest && formatTransitName(closest.station.name);
+  const distance = closest && (isHere ? "here" : calmDistance(closest.meters));
 
   return (
     <div aria-label="Line you're heading for" className="rail-filter" role="group">
-      {closest ? (
-        <p
-          className={`rail-filter-station ${isHere ? "rail-filter-here" : ""}`}
-          key={closest.station.name}
-        >
-          <span className="sr-only">Closest station: </span>
-          <span className="truncate font-semibold">
-            {formatTransitName(closest.station.name)}
+      {/* "Heading for" flips over to the station, like a departure board. */}
+      <p
+        className={`rail-filter-label ${closest ? "rail-filter-station" : ""} ${
+          isHere ? "rail-filter-here" : ""
+        }`}
+      >
+        {station && (
+          <span className="sr-only">
+            Closest station: {station}, {distance}
           </span>
-          <span className="shrink-0 tabular-nums">
-            · {isHere ? "here" : calmDistance(closest.meters)}
-          </span>
-        </p>
-      ) : (
-        <span aria-hidden="true" className="rail-filter-label">
-          Heading for
-        </span>
-      )}
+        )}
+        <FlapText className="font-semibold" text={station ?? "Heading for"} />
+        <FlapText className="shrink-0" text={distance ? ` · ${distance}` : ""} />
+      </p>
       {/* All stay mounted, so the same badge morphs between the two states. */}
       {RAIL_LINES.map((line) => {
         const folded = selected !== null && line !== selected;
