@@ -29,3 +29,8 @@ export async function apiResponseError(
 export function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === "AbortError";
 }
+
+/** OASA drops requests from outside Greece, so retrying won't help. */
+export function isGeoBlocked(error: unknown): boolean {
+  return error instanceof ApiRequestError && error.code === "OASA_GEO_BLOCKED";
+}
