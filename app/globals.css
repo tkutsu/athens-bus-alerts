@@ -277,7 +277,11 @@ textarea:disabled {
   z-index: 10;
 }
 
-.theme-switch {
+.root-switch {
+  /* Off: the thumb sits on the left icon, which reads in paper colour. */
+  --switch-thumb-x: 0;
+  --switch-off-color: var(--paper);
+  --switch-on-color: rgb(var(--ink-rgb) / 0.5);
   position: relative;
   display: inline-flex;
   width: 3rem;
@@ -294,29 +298,36 @@ textarea:disabled {
     background-color 160ms ease;
 }
 
-.theme-switch:hover {
+/* Each switch is on when its <html> attribute says so, before React hydrates. */
+:root[data-theme="dark"] .theme-switch,
+:root[data-metro="on"] .metro-switch {
+  --switch-thumb-x: 1.375rem;
+  --switch-off-color: rgb(var(--ink-rgb) / 0.5);
+  --switch-on-color: var(--paper);
+}
+
+.root-switch:hover {
   border-color: rgb(var(--ink-rgb) / 0.48);
 }
 
-.theme-switch-icon {
+.root-switch-icon {
   position: relative;
   z-index: 1;
   display: grid;
+  min-width: 0.875rem;
   place-items: center;
   transition: color 160ms ease;
 }
 
-.theme-switch-sun,
-[data-theme="dark"] .theme-switch-moon {
-  color: var(--paper);
+.root-switch-off {
+  color: var(--switch-off-color);
 }
 
-.theme-switch-moon,
-[data-theme="dark"] .theme-switch-sun {
-  color: rgb(var(--ink-rgb) / 0.5);
+.root-switch-on {
+  color: var(--switch-on-color);
 }
 
-.theme-switch-thumb {
+.root-switch-thumb {
   position: absolute;
   top: 0.1875rem;
   left: 0.1875rem;
@@ -325,11 +336,13 @@ textarea:disabled {
   border-radius: 999px;
   background: var(--ink);
   box-shadow: 0 1px 3px rgb(0 0 0 / 0.24);
+  transform: translateX(var(--switch-thumb-x));
   transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-[data-theme="dark"] .theme-switch-thumb {
-  transform: translateX(1.375rem);
+/* Switching the metro off removes the whole layer: chips, readout, labels. */
+:root[data-metro="off"] .metro-layer {
+  display: none !important;
 }
 
 .stop-map-shell {
@@ -1680,9 +1693,9 @@ textarea:disabled {
 
 @media (prefers-reduced-motion: reduce) {
   .small-action,
-  .theme-switch,
-  .theme-switch-icon,
-  .theme-switch-thumb {
+  .root-switch,
+  .root-switch-icon,
+  .root-switch-thumb {
     transition: none;
   }
 
