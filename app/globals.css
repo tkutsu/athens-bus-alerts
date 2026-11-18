@@ -386,6 +386,20 @@ textarea:disabled {
   --line-color: var(--line-m3);
 }
 
+/* A station on the map: its roundels centred on the station, ringed against the tiles. */
+.map-station {
+  position: absolute;
+  display: inline-flex;
+  gap: 1px;
+  font-family: var(--font-display);
+  font-size: 1rem;
+  transform: translate(-50%, -50%);
+}
+
+.map-station .metro-chip {
+  box-shadow: 0 0 0 1.5px #fff;
+}
+
 /* Collapses to nothing when hidden; its margins cancel out, so the page doesn't move. */
 .closest-metro {
   display: grid;
